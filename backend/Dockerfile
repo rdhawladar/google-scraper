@@ -19,7 +19,10 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 # Install PHP extensions
 RUN docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd
 
-# Install Composer
+# Install Redis extension
+RUN pecl install redis && docker-php-ext-enable redis
+
+# Get latest Composer
 COPY --from=composer:2.6.5 /usr/bin/composer /usr/bin/composer
 
 # Set working directory
@@ -41,7 +44,10 @@ RUN chown -R www-data:www-data storage bootstrap/cache
 RUN mkdir -p /etc/supervisor/conf.d/
 COPY docker/supervisor.conf /etc/supervisor/conf.d/supervisor.conf
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 80
 
-# Start supervisor
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
+ENTRYPOINT ["docker-entrypoint.sh"]

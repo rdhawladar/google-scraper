@@ -10,15 +10,15 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use DOMDocument;
-use DOMXPath;
 
 class ScrapeGoogleResults implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected $keyword;
-    protected $maxRetries = 3;
+    protected $maxRetries = 1;
     protected $timeout = 30;
 
     public function __construct(Keyword $keyword)
@@ -52,32 +52,48 @@ class ScrapeGoogleResults implements ShouldQueue
 
     protected function scrapeGoogle($query)
     {
-        $userAgents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
+        $mobileUserAgents = [
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
         ];
 
         $results = [];
         $retries = 0;
+        $maxRetries = 1;
 
-        while ($retries < $this->maxRetries) {
+        while ($retries < $maxRetries) {
             try {
-                $userAgent = $userAgents[array_rand($userAgents)];
+                $userAgent = $mobileUserAgents[array_rand($mobileUserAgents)];
+                Log::info('Attempting to scrape Google', [
+                    'keyword_id' => $this->keyword->id,
+                    'keyword' => $this->keyword->keyword,
+                    'attempt' => $retries + 1,
+                    'user_agent' => $userAgent
+                ]);
+
                 $response = Http::withHeaders([
                     'User-Agent' => $userAgent,
-                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language' => 'en-US,en;q=0.5',
+                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language' => 'en-US,en;q=0.9',
                     'Accept-Encoding' => 'gzip, deflate',
-                    'DNT' => '1',
                     'Connection' => 'keep-alive',
-                    'Upgrade-Insecure-Requests' => '1'
+                    'Cache-Control' => 'no-cache'
                 ])
                 ->timeout($this->timeout)
                 ->get('https://www.google.com/search', [
                     'q' => $query,
                     'num' => 10,
-                    'hl' => 'en'
+                    'ie' => 'UTF-8',
+                    'source' => 'mobile',
+                    'gbv' => 1
+                ]);
+
+                Log::info('Google response received', [
+                    'keyword_id' => $this->keyword->id,
+                    'status_code' => $response->status(),
+                    'content_length' => strlen($response->body())
                 ]);
 
                 if ($response->successful()) {
@@ -85,43 +101,112 @@ class ScrapeGoogleResults implements ShouldQueue
                     
                     // Parse the HTML
                     $dom = new DOMDocument();
-                    @$dom->loadHTML($html, LIBXML_NOERROR);
-                    $xpath = new DOMXPath($dom);
+                    @$dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
 
-                    // Extract search results
-                    $searchResults = $xpath->query('//div[@class="g"]');
-                    foreach ($searchResults as $result) {
-                        $titleNode = $xpath->query('.//h3', $result)->item(0);
-                        $linkNode = $xpath->query('.//a', $result)->item(0);
-                        $snippetNode = $xpath->query('.//div[@class="VwiC3b yXK7lf MUxGbd yDYNvb lyLwlc lEBKkf"]', $result)->item(0);
+                    // Find all anchor tags
+                    $links = $dom->getElementsByTagName('a');
+                    $foundResults = false;
 
-                        if ($titleNode && $linkNode) {
+                    foreach ($links as $link) {
+                        $href = $link->getAttribute('href');
+                        
+                        // Skip if not a valid URL or if it's a Google internal link
+                        if (!filter_var($href, FILTER_VALIDATE_URL) || 
+                            str_contains($href, 'google.com') || 
+                            str_contains($href, '/url?') ||
+                            str_contains($href, '/search?')) {
+                            continue;
+                        }
+
+                        // Try to find the title and snippet near this link
+                        $title = null;
+                        $snippet = null;
+                        
+                        // Look for title in parent nodes
+                        $parent = $link;
+                        for ($i = 0; $i < 3; $i++) {
+                            if (!$parent) break;
+                            
+                            // Check all child nodes for potential title or heading
+                            foreach ($parent->childNodes as $child) {
+                                if ($child->nodeType === XML_ELEMENT_NODE) {
+                                    $text = trim($child->textContent);
+                                    if (strlen($text) > 10 && strlen($text) < 200) {
+                                        $title = $text;
+                                        break 2;
+                                    }
+                                }
+                            }
+                            $parent = $parent->parentNode;
+                        }
+
+                        // Look for snippet in nearby nodes
+                        $parent = $link->parentNode;
+                        for ($i = 0; $i < 3 && $parent; $i++) {
+                            $next = $parent->nextSibling;
+                            while ($next) {
+                                if ($next->nodeType === XML_ELEMENT_NODE) {
+                                    $text = trim($next->textContent);
+                                    if (strlen($text) > 50) {
+                                        $snippet = $text;
+                                        break 2;
+                                    }
+                                }
+                                $next = $next->nextSibling;
+                            }
+                            $parent = $parent->parentNode;
+                        }
+
+                        // Only add if we found both title and URL
+                        if ($title && $href) {
                             $results[] = [
-                                'title' => $titleNode->textContent,
-                                'url' => $linkNode->getAttribute('href'),
-                                'snippet' => $snippetNode ? $snippetNode->textContent : null
+                                'title' => $title,
+                                'url' => $href,
+                                'snippet' => $snippet
                             ];
+                            $foundResults = true;
                         }
                     }
 
-                    // If we successfully got results, break the retry loop
-                    if (!empty($results)) {
+                    if ($foundResults) {
                         break;
+                    } else {
+                        // Save HTML for debugging
+                        if (app()->environment('local')) {
+                            Storage::disk('local')->put('google_response_' . $this->keyword->id . '.html', $html);
+                        }
+                        
+                        Log::warning('No results found in HTML', [
+                            'keyword_id' => $this->keyword->id,
+                            'html_sample' => substr($html, 0, 500)
+                        ]);
                     }
+                } else {
+                    Log::warning('Google request failed', [
+                        'keyword_id' => $this->keyword->id,
+                        'status_code' => $response->status(),
+                        'response' => substr($response->body(), 0, 500)
+                    ]);
                 }
 
-                // Add delay between retries to avoid rate limiting
-                sleep(rand(2, 5));
+                $delay = rand(3, 7);
+                Log::info("Waiting {$delay} seconds before next attempt");
+                sleep($delay);
                 $retries++;
             } catch (\Exception $e) {
-                Log::error('Error in Google scraping attempt: ' . $e->getMessage());
+                Log::error('Error in Google scraping attempt: ' . $e->getMessage(), [
+                    'keyword_id' => $this->keyword->id,
+                    'attempt' => $retries + 1,
+                    'exception' => get_class($e),
+                    'trace' => $e->getTraceAsString()
+                ]);
                 $retries++;
-                sleep(rand(2, 5));
+                sleep(rand(3, 7));
             }
         }
 
         if (empty($results)) {
-            throw new \Exception('Failed to scrape Google results after ' . $this->maxRetries . ' attempts');
+            throw new \Exception('Failed to scrape Google results after ' . $maxRetries . ' attempts');
         }
 
         return $results;
