@@ -53,19 +53,31 @@ class ScrapeGoogleResults implements ShouldQueue
     protected function scrapeGoogle($query)
     {
         $mobileUserAgents = [
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
+            // Latest iOS Safari
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+            // Latest Chrome on Android
+            'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36',
+            // Latest Firefox on Android
+            'Mozilla/5.0 (Android 14; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
+            // Latest Edge on iOS
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/120.0.2210.126 Mobile/15E148 Safari/605.1.15',
+            // Latest Samsung Browser
+            'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36'
         ];
 
         $results = [];
         $retries = 0;
-        $maxRetries = 1;
+        $maxRetries = 3;
+        $lastUsedAgent = null;
 
         while ($retries < $maxRetries) {
             try {
-                $userAgent = $mobileUserAgents[array_rand($mobileUserAgents)];
+                // Ensure we don't use the same user agent twice in a row
+                do {
+                    $userAgent = $mobileUserAgents[array_rand($mobileUserAgents)];
+                } while ($userAgent === $lastUsedAgent && count($mobileUserAgents) > 1);
+                $lastUsedAgent = $userAgent;
+
                 Log::info('Attempting to scrape Google', [
                     'keyword_id' => $this->keyword->id,
                     'keyword' => $this->keyword->keyword,
@@ -73,22 +85,38 @@ class ScrapeGoogleResults implements ShouldQueue
                     'user_agent' => $userAgent
                 ]);
 
+                // Add some randomization to the request parameters
+                $params = [
+                    'q' => $query,
+                    'num' => rand(8, 10), // Randomize results count
+                    'ie' => 'UTF-8',
+                    'source' => 'mobile',
+                    'gbv' => 1,
+                    'pws' => 0, // Disable personalized results
+                    'gl' => 'us', // Force US results
+                    'hl' => 'en' // Force English language
+                ];
+
+                // Add random parameters to appear more natural
+                if (rand(0, 1)) {
+                    $params['safe'] = 'active';
+                }
+
                 $response = Http::withHeaders([
                     'User-Agent' => $userAgent,
-                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language' => 'en-US,en;q=0.9',
                     'Accept-Encoding' => 'gzip, deflate',
                     'Connection' => 'keep-alive',
-                    'Cache-Control' => 'no-cache'
+                    'Cache-Control' => 'max-age=0',
+                    'Upgrade-Insecure-Requests' => '1',
+                    'Sec-Fetch-Dest' => 'document',
+                    'Sec-Fetch-Mode' => 'navigate',
+                    'Sec-Fetch-Site' => 'none',
+                    'Sec-Fetch-User' => '?1'
                 ])
                 ->timeout($this->timeout)
-                ->get('https://www.google.com/search', [
-                    'q' => $query,
-                    'num' => 10,
-                    'ie' => 'UTF-8',
-                    'source' => 'mobile',
-                    'gbv' => 1
-                ]);
+                ->get('https://www.google.com/search', $params);
 
                 Log::info('Google response received', [
                     'keyword_id' => $this->keyword->id,
@@ -189,9 +217,13 @@ class ScrapeGoogleResults implements ShouldQueue
                     ]);
                 }
 
-                $delay = rand(3, 7);
+                // Add exponential backoff with jitter for retries
+                $baseDelay = pow(2, $retries); // 1, 2, 4 seconds
+                $jitter = rand(0, 1000) / 1000; // Random value between 0 and 1
+                $delay = $baseDelay + $jitter;
+                
                 Log::info("Waiting {$delay} seconds before next attempt");
-                sleep($delay);
+                usleep($delay * 1000000); // Convert to microseconds
                 $retries++;
             } catch (\Exception $e) {
                 Log::error('Error in Google scraping attempt: ' . $e->getMessage(), [
@@ -201,7 +233,7 @@ class ScrapeGoogleResults implements ShouldQueue
                     'trace' => $e->getTraceAsString()
                 ]);
                 $retries++;
-                sleep(rand(3, 7));
+                usleep(rand(3000000, 7000000)); // Random delay between 3 and 7 seconds
             }
         }
 
