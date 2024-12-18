@@ -1,12 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Badge, Card, Alert, Button, Modal, ListGroup } from 'react-bootstrap';
+import { Table, Badge, Card, Alert, Button, Modal, ListGroup, Spinner } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import axios from '../utils/axios';
 
 interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string | null;
+  id: number;
+  keyword_id: number;
+  total_ads: number;
+  total_links: number;
+  organic_results: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+  status: string;
+  error_message?: string;
+  scraped_at: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Keyword {
@@ -23,6 +34,8 @@ export default function KeywordList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedKeyword, setSelectedKeyword] = useState<Keyword | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
+  const [loadingResults, setLoadingResults] = useState(false);
   const { token } = useAuth();
 
   const fetchKeywords = async () => {
@@ -44,6 +57,25 @@ export default function KeywordList() {
     }
   };
 
+  const fetchSearchResults = async (keywordId: number) => {
+    setLoadingResults(true);
+    try {
+      const response = await axios.get(`/search-results/${keywordId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setSearchResults(response.data);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message || 
+        'An error occurred while fetching search results'
+      );
+    } finally {
+      setLoadingResults(false);
+    }
+  };
+
   const handleRetry = async (keywordId: number) => {
     try {
       await axios.post(`/keywords/${keywordId}/retry`, null, {
@@ -62,10 +94,13 @@ export default function KeywordList() {
 
   const handleShowResults = async (keyword: Keyword) => {
     setSelectedKeyword(keyword);
+    setSearchResults(null); // Clear previous results
+    await fetchSearchResults(keyword.id);
   };
 
   const handleCloseModal = () => {
     setSelectedKeyword(null);
+    setSearchResults(null);
   };
 
   useEffect(() => {
@@ -156,24 +191,51 @@ export default function KeywordList() {
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          {selectedKeyword?.results && 'error' in selectedKeyword.results ? (
-            <Alert variant="danger">
-              Error: {selectedKeyword.results.error}
-            </Alert>
+          {loadingResults ? (
+            <div className="text-center p-4">
+              <Spinner animation="border" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </Spinner>
+            </div>
+          ) : searchResults ? (
+            <>
+              <div className="mb-4">
+                <h6>Statistics</h6>
+                <ListGroup horizontal className="mb-3">
+                  <ListGroup.Item>
+                    <strong>Total Ads:</strong> {searchResults.total_ads}
+                  </ListGroup.Item>
+                  <ListGroup.Item>
+                    <strong>Total Links:</strong> {searchResults.total_links}
+                  </ListGroup.Item>
+                  <ListGroup.Item>
+                    <strong>Scraped At:</strong>{' '}
+                    {new Date(searchResults.scraped_at).toLocaleString()}
+                  </ListGroup.Item>
+                </ListGroup>
+              </div>
+
+              <h6>Organic Results</h6>
+              <ListGroup variant="flush">
+                {searchResults.organic_results?.map((result, index) => (
+                  <ListGroup.Item key={index}>
+                    <h5>
+                      <a href={result.url} target="_blank" rel="noopener noreferrer">
+                        {result.title}
+                      </a>
+                    </h5>
+                    <div className="text-muted small">{result.url}</div>
+                    {result.snippet && (
+                      <p className="mt-2 mb-0">{result.snippet}</p>
+                    )}
+                  </ListGroup.Item>
+                ))}
+              </ListGroup>
+            </>
           ) : (
-            <ListGroup variant="flush">
-              {(selectedKeyword?.results as SearchResult[])?.map((result, index) => (
-                <ListGroup.Item key={index}>
-                  <h5>
-                    <a href={result.url} target="_blank" rel="noopener noreferrer">
-                      {result.title}
-                    </a>
-                  </h5>
-                  <div className="text-muted small">{result.url}</div>
-                  {result.snippet && <p className="mt-2 mb-0">{result.snippet}</p>}
-                </ListGroup.Item>
-              ))}
-            </ListGroup>
+            <Alert variant="warning">
+              No search results found for this keyword.
+            </Alert>
           )}
         </Modal.Body>
       </Modal>
