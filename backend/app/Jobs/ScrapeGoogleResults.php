@@ -3,6 +3,9 @@
 namespace App\Jobs;
 
 use App\Models\Keyword;
+use App\Services\ProxyManager;
+use App\Services\RateLimiter;
+use App\Services\GoogleResultParser;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -11,19 +14,23 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use DOMDocument;
 
 class ScrapeGoogleResults implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected $keyword;
-    protected $maxRetries = 1;
     protected $timeout = 30;
+    protected $proxyManager;
+    protected $rateLimiter;
+    protected $resultParser;
 
     public function __construct(Keyword $keyword)
     {
         $this->keyword = $keyword;
+        $this->proxyManager = new ProxyManager();
+        $this->rateLimiter = new RateLimiter();
+        $this->resultParser = new GoogleResultParser();
     }
 
     public function handle()
@@ -35,7 +42,6 @@ class ScrapeGoogleResults implements ShouldQueue
             
             $this->keyword->update([
                 'status' => 'completed',
-                'results' => $results
             ]);
         } catch (\Exception $e) {
             Log::error('Error scraping Google results: ' . $e->getMessage(), [
@@ -72,6 +78,18 @@ class ScrapeGoogleResults implements ShouldQueue
 
         while ($retries < $maxRetries) {
             try {
+                // Check rate limits before proceeding
+                if (!$this->rateLimiter->canProceed()) {
+                    Log::warning('Rate limit exceeded, delaying job', [
+                        'keyword_id' => $this->keyword->id,
+                        'remaining_attempts' => $maxRetries - $retries
+                    ]);
+                    
+                    // Release the job back to the queue with a delay
+                    $this->release(60);
+                    return;
+                }
+
                 // Ensure we don't use the same user agent twice in a row
                 do {
                     $userAgent = $mobileUserAgents[array_rand($mobileUserAgents)];
@@ -102,6 +120,20 @@ class ScrapeGoogleResults implements ShouldQueue
                     $params['safe'] = 'active';
                 }
 
+                $proxy = $this->proxyManager->getNextProxy();
+                $requestOptions = [
+                    'timeout' => $this->timeout,
+                    'verify' => !empty($proxy), // Disable SSL verification when using proxy
+                ];
+
+                if ($proxy) {
+                    $requestOptions['proxy'] = $proxy;
+                    Log::info('Using proxy for request', [
+                        'keyword_id' => $this->keyword->id,
+                        'proxy' => $proxy
+                    ]);
+                }
+
                 $response = Http::withHeaders([
                     'User-Agent' => $userAgent,
                     'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -115,7 +147,7 @@ class ScrapeGoogleResults implements ShouldQueue
                     'Sec-Fetch-Site' => 'none',
                     'Sec-Fetch-User' => '?1'
                 ])
-                ->timeout($this->timeout)
+                ->withOptions($requestOptions)
                 ->get('https://www.google.com/search', $params);
 
                 Log::info('Google response received', [
@@ -127,77 +159,28 @@ class ScrapeGoogleResults implements ShouldQueue
                 if ($response->successful()) {
                     $html = $response->body();
                     
-                    // Parse the HTML
-                    $dom = new DOMDocument();
-                    @$dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+                    // Parse results using the dedicated parser
+                    $results = $this->resultParser->parse($html);
 
-                    // Find all anchor tags
-                    $links = $dom->getElementsByTagName('a');
-                    $foundResults = false;
-
-                    foreach ($links as $link) {
-                        $href = $link->getAttribute('href');
-                        
-                        // Skip if not a valid URL or if it's a Google internal link
-                        if (!filter_var($href, FILTER_VALIDATE_URL) || 
-                            str_contains($href, 'google.com') || 
-                            str_contains($href, '/url?') ||
-                            str_contains($href, '/search?')) {
-                            continue;
+                    if (!empty($results)) {
+                        // Store results in the database
+                        foreach ($results as $result) {
+                            $this->keyword->results()->create([
+                                'title' => $result['title'] ?? null,
+                                'url' => $result['url'] ?? null,
+                                'snippet' => $result['snippet'] ?? $result['content'] ?? null,
+                                'position' => $result['position'],
+                                'type' => $result['type'],
+                                'metadata' => json_encode($result['metadata'] ?? [])
+                            ]);
                         }
 
-                        // Try to find the title and snippet near this link
-                        $title = null;
-                        $snippet = null;
-                        
-                        // Look for title in parent nodes
-                        $parent = $link;
-                        for ($i = 0; $i < 3; $i++) {
-                            if (!$parent) break;
-                            
-                            // Check all child nodes for potential title or heading
-                            foreach ($parent->childNodes as $child) {
-                                if ($child->nodeType === XML_ELEMENT_NODE) {
-                                    $text = trim($child->textContent);
-                                    if (strlen($text) > 10 && strlen($text) < 200) {
-                                        $title = $text;
-                                        break 2;
-                                    }
-                                }
-                            }
-                            $parent = $parent->parentNode;
-                        }
+                        Log::info('Successfully scraped and stored results', [
+                            'keyword_id' => $this->keyword->id,
+                            'results_count' => count($results)
+                        ]);
 
-                        // Look for snippet in nearby nodes
-                        $parent = $link->parentNode;
-                        for ($i = 0; $i < 3 && $parent; $i++) {
-                            $next = $parent->nextSibling;
-                            while ($next) {
-                                if ($next->nodeType === XML_ELEMENT_NODE) {
-                                    $text = trim($next->textContent);
-                                    if (strlen($text) > 50) {
-                                        $snippet = $text;
-                                        break 2;
-                                    }
-                                }
-                                $next = $next->nextSibling;
-                            }
-                            $parent = $parent->parentNode;
-                        }
-
-                        // Only add if we found both title and URL
-                        if ($title && $href) {
-                            $results[] = [
-                                'title' => $title,
-                                'url' => $href,
-                                'snippet' => $snippet
-                            ];
-                            $foundResults = true;
-                        }
-                    }
-
-                    if ($foundResults) {
-                        break;
+                        break; // Exit retry loop on success
                     } else {
                         // Save HTML for debugging
                         if (app()->environment('local')) {
@@ -215,6 +198,11 @@ class ScrapeGoogleResults implements ShouldQueue
                         'status_code' => $response->status(),
                         'response' => substr($response->body(), 0, 500)
                     ]);
+
+                    if ($proxy) {
+                        $this->proxyManager->markProxyUnhealthy($proxy);
+                    }
+                    $this->rateLimiter->trackFailure($proxy ?? 'default');
                 }
 
                 // Add exponential backoff with jitter for retries
