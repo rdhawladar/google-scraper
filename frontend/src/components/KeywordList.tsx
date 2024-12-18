@@ -1,5 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Badge, Card, Alert, Button, Modal, ListGroup, Spinner } from 'react-bootstrap';
+import { 
+  Table, 
+  Badge, 
+  Card, 
+  Alert, 
+  Button, 
+  Modal, 
+  ListGroup, 
+  Spinner,
+  Form,
+  InputGroup,
+  Row,
+  Col,
+  Dropdown
+} from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import axios from '../utils/axios';
 
@@ -29,6 +43,14 @@ interface Keyword {
   updated_at: string;
 }
 
+const STATUS_OPTIONS = [
+  { value: '', label: 'All Status' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' }
+];
+
 export default function KeywordList() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +58,10 @@ export default function KeywordList() {
   const [selectedKeyword, setSelectedKeyword] = useState<Keyword | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'created' | 'updated'>('created');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const { token } = useAuth();
 
   const fetchKeywords = async () => {
@@ -83,7 +109,7 @@ export default function KeywordList() {
           Authorization: `Bearer ${token}`,
         },
       });
-      fetchKeywords(); // Refresh the list
+      fetchKeywords();
     } catch (err: any) {
       setError(
         err.response?.data?.message || 
@@ -94,7 +120,7 @@ export default function KeywordList() {
 
   const handleShowResults = async (keyword: Keyword) => {
     setSelectedKeyword(keyword);
-    setSearchResults(null); // Clear previous results
+    setSearchResults(null);
     await fetchSearchResults(keyword.id);
   };
 
@@ -103,12 +129,38 @@ export default function KeywordList() {
     setSearchResults(null);
   };
 
+  const handleSort = (field: 'created' | 'updated') => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+  };
+
+  const getSortIcon = (field: 'created' | 'updated') => {
+    if (sortBy !== field) return '↕️';
+    return sortOrder === 'asc' ? '↑' : '↓';
+  };
+
   useEffect(() => {
     fetchKeywords();
-    // Poll for updates every 10 seconds
     const interval = setInterval(fetchKeywords, 10000);
     return () => clearInterval(interval);
   }, [token]);
+
+  const filteredKeywords = keywords
+    .filter(keyword => 
+      keyword.keyword.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      (statusFilter ? keyword.status === statusFilter : true)
+    )
+    .sort((a, b) => {
+      const dateA = new Date(sortBy === 'created' ? a.created_at : a.updated_at);
+      const dateB = new Date(sortBy === 'created' ? b.created_at : b.updated_at);
+      return sortOrder === 'asc' 
+        ? dateA.getTime() - dateB.getTime()
+        : dateB.getTime() - dateA.getTime();
+    });
 
   const getStatusBadge = (status: string) => {
     const variants: { [key: string]: string } = {
@@ -128,13 +180,61 @@ export default function KeywordList() {
     <>
       <Card className="shadow-sm">
         <Card.Body>
-          <Card.Title>Keywords</Card.Title>
+          <Card.Title className="d-flex justify-content-between align-items-center mb-4">
+            <span>Keywords</span>
+            <small className="text-muted">
+              {filteredKeywords.length} of {keywords.length} keywords
+            </small>
+          </Card.Title>
           
           {error && <Alert variant="danger">{error}</Alert>}
 
-          {keywords.length === 0 ? (
+          <Row className="mb-3">
+            <Col md={6}>
+              <InputGroup>
+                <InputGroup.Text>
+                  <i className="bi bi-search"></i>
+                </InputGroup.Text>
+                <Form.Control
+                  type="text"
+                  placeholder="Search keywords..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </InputGroup>
+            </Col>
+            <Col md={3}>
+              <Form.Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                {STATUS_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Form.Select>
+            </Col>
+            <Col md={3}>
+              <Dropdown>
+                <Dropdown.Toggle variant="outline-secondary" id="sort-dropdown" className="w-100">
+                  Sort by: {sortBy === 'created' ? 'Created' : 'Updated'} {sortOrder === 'asc' ? '↑' : '↓'}
+                </Dropdown.Toggle>
+                <Dropdown.Menu>
+                  <Dropdown.Item onClick={() => handleSort('created')}>
+                    Created Date {getSortIcon('created')}
+                  </Dropdown.Item>
+                  <Dropdown.Item onClick={() => handleSort('updated')}>
+                    Updated Date {getSortIcon('updated')}
+                  </Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown>
+            </Col>
+          </Row>
+
+          {filteredKeywords.length === 0 ? (
             <Alert variant="info">
-              No keywords found. Upload a CSV file to start scraping.
+              No keywords found matching your criteria.
             </Alert>
           ) : (
             <Table responsive hover>
@@ -143,13 +243,17 @@ export default function KeywordList() {
                   <th>ID</th>
                   <th>Keyword</th>
                   <th>Status</th>
-                  <th>Created</th>
-                  <th>Updated</th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('created')}>
+                    Created {sortBy === 'created' && getSortIcon('created')}
+                  </th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('updated')}>
+                    Updated {sortBy === 'updated' && getSortIcon('updated')}
+                  </th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {keywords.map((keyword) => (
+                {filteredKeywords.map((keyword) => (
                   <tr key={keyword.id}>
                     <td>{keyword.id}</td>
                     <td>{keyword.keyword}</td>
@@ -171,6 +275,7 @@ export default function KeywordList() {
                           variant="warning"
                           size="sm"
                           onClick={() => handleRetry(keyword.id)}
+                          className="ms-2"
                         >
                           Retry
                         </Button>
@@ -214,6 +319,25 @@ export default function KeywordList() {
                   </ListGroup.Item>
                 </ListGroup>
               </div>
+
+              <Form.Control
+                type="text"
+                placeholder="Search in results..."
+                className="mb-3"
+                onChange={(e) => {
+                  const searchText = e.target.value.toLowerCase();
+                  const filteredResults = searchResults.organic_results.filter(
+                    result =>
+                      result.title.toLowerCase().includes(searchText) ||
+                      result.url.toLowerCase().includes(searchText) ||
+                      result.snippet.toLowerCase().includes(searchText)
+                  );
+                  setSearchResults({
+                    ...searchResults,
+                    organic_results: filteredResults
+                  });
+                }}
+              />
 
               <h6>Organic Results</h6>
               <ListGroup variant="flush">
