@@ -58,7 +58,7 @@ class ScraperAnalyticsController extends Controller
     public function getHourlyStats(): JsonResponse
     {
         $hourlyStats = SearchResult::select(
-            DB::raw('DATE_FORMAT(created_at, "%Y-%m-%d %H:00:00") as hour'),
+            DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:00:00') as hour"),
             DB::raw('count(*) as count')
         )
             ->where('created_at', '>=', now()->subDay())
@@ -73,7 +73,7 @@ class ScraperAnalyticsController extends Controller
     {
         $failureStats = Keyword::where('status', 'failed')
             ->select(
-                DB::raw('DATE_FORMAT(updated_at, "%Y-%m-%d") as date'),
+                DB::raw("to_char(updated_at, 'YYYY-MM-DD') as date"),
                 DB::raw('count(*) as count')
             )
             ->where('updated_at', '>=', now()->subDays(7))
