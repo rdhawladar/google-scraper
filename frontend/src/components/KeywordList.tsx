@@ -12,7 +12,8 @@ import {
   InputGroup,
   Row,
   Col,
-  Dropdown
+  Dropdown,
+  Pagination
 } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import axios from '../utils/axios';
@@ -51,6 +52,8 @@ const STATUS_OPTIONS = [
   { value: 'failed', label: 'Failed' }
 ];
 
+const ITEMS_PER_PAGE = 20;
+
 export default function KeywordList() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +65,7 @@ export default function KeywordList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState<'created' | 'updated'>('created');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
   const { token } = useAuth();
 
   const fetchKeywords = async () => {
@@ -149,6 +153,11 @@ export default function KeywordList() {
     return () => clearInterval(interval);
   }, [token]);
 
+  useEffect(() => {
+    // Reset to first page when filters change
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, sortBy, sortOrder]);
+
   const filteredKeywords = keywords
     .filter(keyword => 
       keyword.keyword.toLowerCase().includes(searchTerm.toLowerCase()) &&
@@ -162,6 +171,12 @@ export default function KeywordList() {
         : dateB.getTime() - dateA.getTime();
     });
 
+  const totalPages = Math.ceil(filteredKeywords.length / ITEMS_PER_PAGE);
+  const paginatedKeywords = filteredKeywords.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
   const getStatusBadge = (status: string) => {
     const variants: { [key: string]: string } = {
       pending: 'secondary',
@@ -170,6 +185,48 @@ export default function KeywordList() {
       failed: 'danger',
     };
     return <Badge bg={variants[status] || 'secondary'}>{status}</Badge>;
+  };
+
+  const renderPagination = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // First page
+    if (startPage > 1) {
+      items.push(
+        <Pagination.First key="first" onClick={() => setCurrentPage(1)} />,
+        <Pagination.Ellipsis key="ellipsis1" />
+      );
+    }
+
+    // Page numbers
+    for (let page = startPage; page <= endPage; page++) {
+      items.push(
+        <Pagination.Item
+          key={page}
+          active={page === currentPage}
+          onClick={() => setCurrentPage(page)}
+        >
+          {page}
+        </Pagination.Item>
+      );
+    }
+
+    // Last page
+    if (endPage < totalPages) {
+      items.push(
+        <Pagination.Ellipsis key="ellipsis2" />,
+        <Pagination.Last key="last" onClick={() => setCurrentPage(totalPages)} />
+      );
+    }
+
+    return <Pagination>{items}</Pagination>;
   };
 
   if (loading) {
@@ -237,54 +294,65 @@ export default function KeywordList() {
               No keywords found matching your criteria.
             </Alert>
           ) : (
-            <Table responsive hover>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Keyword</th>
-                  <th>Status</th>
-                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('created')}>
-                    Created {sortBy === 'created' && getSortIcon('created')}
-                  </th>
-                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('updated')}>
-                    Updated {sortBy === 'updated' && getSortIcon('updated')}
-                  </th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredKeywords.map((keyword) => (
-                  <tr key={keyword.id}>
-                    <td>{keyword.id}</td>
-                    <td>{keyword.keyword}</td>
-                    <td>{getStatusBadge(keyword.status)}</td>
-                    <td>{new Date(keyword.created_at).toLocaleString()}</td>
-                    <td>{new Date(keyword.updated_at).toLocaleString()}</td>
-                    <td>
-                      {keyword.status === 'completed' && (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => handleShowResults(keyword)}
-                        >
-                          View Results
-                        </Button>
-                      )}
-                      {keyword.status === 'failed' && (
-                        <Button
-                          variant="warning"
-                          size="sm"
-                          onClick={() => handleRetry(keyword.id)}
-                          className="ms-2"
-                        >
-                          Retry
-                        </Button>
-                      )}
-                    </td>
+            <>
+              <Table responsive hover>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Keyword</th>
+                    <th>Status</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => handleSort('created')}>
+                      Created {sortBy === 'created' && getSortIcon('created')}
+                    </th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => handleSort('updated')}>
+                      Updated {sortBy === 'updated' && getSortIcon('updated')}
+                    </th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
+                </thead>
+                <tbody>
+                  {paginatedKeywords.map((keyword) => (
+                    <tr key={keyword.id}>
+                      <td>{keyword.id}</td>
+                      <td>{keyword.keyword}</td>
+                      <td>{getStatusBadge(keyword.status)}</td>
+                      <td>{new Date(keyword.created_at).toLocaleString()}</td>
+                      <td>{new Date(keyword.updated_at).toLocaleString()}</td>
+                      <td>
+                        {keyword.status === 'completed' && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleShowResults(keyword)}
+                          >
+                            View Results
+                          </Button>
+                        )}
+                        {keyword.status === 'failed' && (
+                          <Button
+                            variant="warning"
+                            size="sm"
+                            onClick={() => handleRetry(keyword.id)}
+                            className="ms-2"
+                          >
+                            Retry
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              
+              <div className="d-flex justify-content-between align-items-center mt-3">
+                <small className="text-muted">
+                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{' '}
+                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredKeywords.length)} of{' '}
+                  {filteredKeywords.length} keywords
+                </small>
+                {totalPages > 1 && renderPagination()}
+              </div>
+            </>
           )}
         </Card.Body>
       </Card>
@@ -349,19 +417,20 @@ export default function KeywordList() {
                       </a>
                     </h5>
                     <div className="text-muted small">{result.url}</div>
-                    {result.snippet && (
-                      <p className="mt-2 mb-0">{result.snippet}</p>
-                    )}
+                    <p className="mt-2 mb-0">{result.snippet}</p>
                   </ListGroup.Item>
                 ))}
               </ListGroup>
             </>
           ) : (
-            <Alert variant="warning">
-              No search results found for this keyword.
-            </Alert>
+            <Alert variant="warning">No search results available.</Alert>
           )}
         </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={handleCloseModal}>
+            Close
+          </Button>
+        </Modal.Footer>
       </Modal>
     </>
   );
