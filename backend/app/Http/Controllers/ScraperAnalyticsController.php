@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Keyword;
 use App\Models\SearchResult;
 use App\Services\ScraperMonitor;
 use Illuminate\Http\JsonResponse;
@@ -19,71 +18,101 @@ class ScraperAnalyticsController extends Controller
 
     public function getStats(): JsonResponse
     {
-        $metrics = $this->monitor->getMetrics();
+        $stats = $this->monitor->getStats();
         
-        $stats = [
+        return response()->json([
             'performance' => [
-                'success_rate' => $metrics['success_rate'],
-                'total_requests' => $metrics['success_count'] + $metrics['failure_count'],
-                'circuit_status' => $metrics['circuit_status'],
-                'failure_reasons' => $metrics['failure_reasons']
+                'success_rate' => $stats['success_rate'],
+                'circuit_breaker' => $stats['circuit_breaker_status'],
+                'total_processed' => $stats['total_processed'],
+                'total_success' => $stats['total_success'],
+                'total_failed' => $stats['total_failed']
             ],
-            'keywords' => [
-                'total' => Keyword::count(),
-                'completed' => Keyword::where('status', 'completed')->count(),
-                'failed' => Keyword::where('status', 'failed')->count(),
-                'pending' => Keyword::where('status', 'pending')->count()
-            ],
-            'results' => [
-                'total' => SearchResult::count(),
-                'by_type' => SearchResult::select('type', DB::raw('count(*) as count'))
-                    ->groupBy('type')
-                    ->get()
-                    ->pluck('count', 'type')
-            ],
-            'recent_failures' => Keyword::where('status', 'failed')
-                ->latest()
-                ->take(5)
-                ->get(['id', 'keyword', 'updated_at'])
-        ];
-
-        // Calculate average results per keyword
-        if ($stats['keywords']['completed'] > 0) {
-            $stats['results']['avg_per_keyword'] = $stats['results']['total'] / $stats['keywords']['completed'];
-        }
-
-        return response()->json($stats);
+            'recent_activity' => $stats['recent_results']
+        ]);
     }
 
     public function getHourlyStats(): JsonResponse
     {
         $hourlyStats = SearchResult::select(
-            DB::raw("to_char(created_at, 'YYYY-MM-DD HH24:00:00') as hour"),
+            DB::raw('date_trunc(\'hour\', scraped_at) as hour'),
+            DB::raw('status'),
             DB::raw('count(*) as count')
         )
-            ->where('created_at', '>=', now()->subDay())
-            ->groupBy('hour')
-            ->orderBy('hour')
-            ->get();
+        ->where('scraped_at', '>=', now()->subDay())
+        ->groupBy('hour', 'status')
+        ->orderBy('hour')
+        ->get();
 
-        return response()->json($hourlyStats);
+        $formattedStats = $hourlyStats->groupBy('hour')
+            ->map(function ($group) {
+                return [
+                    'timestamp' => $group[0]->hour,
+                    'success' => $group->where('status', 'success')->sum('count'),
+                    'failed' => $group->where('status', 'failed')->sum('count'),
+                    'total' => $group->sum('count')
+                ];
+            })
+            ->values();
+
+        return response()->json(['hourly_stats' => $formattedStats]);
     }
 
     public function getFailureAnalysis(): JsonResponse
     {
-        $failureStats = Keyword::where('status', 'failed')
-            ->select(
-                DB::raw("to_char(updated_at, 'YYYY-MM-DD') as date"),
-                DB::raw('count(*) as count')
-            )
-            ->where('updated_at', '>=', now()->subDays(7))
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
+        // Get daily failure stats
+        $failureStats = SearchResult::select(
+            DB::raw('date_trunc(\'day\', scraped_at) as date'),
+            DB::raw('count(*) as count')
+        )
+        ->where('status', 'failed')
+        ->where('scraped_at', '>=', now()->subDays(7))
+        ->groupBy('date')
+        ->orderBy('date')
+        ->get()
+        ->map(function ($stat) {
+            return [
+                'date' => $stat->date,
+                'count' => $stat->count
+            ];
+        });
+
+        // Get recent failures with error messages
+        $recentFailures = SearchResult::where('status', 'failed')
+            ->where('scraped_at', '>=', now()->subHours(24))
+            ->select('error_message', DB::raw('count(*) as count'))
+            ->groupBy('error_message')
+            ->orderBy('count', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($failure) {
+                return [
+                    'reason' => $failure->error_message ?? 'Unknown error',
+                    'count' => $failure->count
+                ];
+            });
 
         return response()->json([
             'daily_failures' => $failureStats,
-            'failure_reasons' => $this->monitor->getMetrics()['failure_reasons']
+            'recent_failures' => $recentFailures
         ]);
+    }
+
+    public function getKeywordStats(): JsonResponse
+    {
+        $stats = SearchResult::select(
+            'keywords.keyword',
+            DB::raw('count(*) as total_attempts'),
+            DB::raw('sum(case when status = \'success\' then 1 else 0 end) as successful'),
+            DB::raw('sum(case when status = \'failed\' then 1 else 0 end) as failed'),
+            DB::raw('max(scraped_at) as last_attempt')
+        )
+        ->join('keywords', 'search_results.keyword_id', '=', 'keywords.id')
+        ->groupBy('keywords.keyword')
+        ->orderBy('total_attempts', 'desc')
+        ->limit(10)
+        ->get();
+
+        return response()->json(['keyword_stats' => $stats]);
     }
 }

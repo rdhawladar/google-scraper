@@ -2,139 +2,136 @@
 
 namespace App\Services;
 
+use App\Models\SearchResult;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ScraperMonitor
 {
-    private const METRICS_PREFIX = 'scraper_metrics:';
-    private const CIRCUIT_PREFIX = 'scraper_circuit:';
-    private const SUCCESS_THRESHOLD = 0.7; // 70% success rate required
-    private const FAILURE_THRESHOLD = 5; // Number of failures before circuit opens
-    private const CIRCUIT_TIMEOUT = 300; // 5 minutes timeout for open circuit
+    private const CACHE_KEY_PREFIX = 'scraper_monitor:';
+    private const CIRCUIT_BREAKER_KEY = 'circuit_breaker_status';
+    private const ERROR_THRESHOLD = 5;
+    private const TIME_WINDOW = 300; // 5 minutes in seconds
 
-    public function recordSuccess(string $type = 'default'): void
+    public function recordSuccess(): void
     {
-        $this->incrementMetric($type . ':success');
-        $this->updateSuccessRate($type);
-    }
-
-    public function recordFailure(string $type = 'default', string $reason = null): void
-    {
-        $this->incrementMetric($type . ':failure');
-        $this->incrementMetric($type . ':failure:' . ($reason ?? 'unknown'));
-        $this->updateSuccessRate($type);
+        $this->incrementCounter('success');
+        $this->resetFailureCount();
         
-        // Check if we need to open the circuit
-        $failures = $this->getMetric($type . ':failure', 0);
-        if ($failures >= self::FAILURE_THRESHOLD) {
-            $this->openCircuit($type);
+        if ($this->isCircuitOpen()) {
+            $this->closeCircuit();
         }
     }
 
-    public function canProceed(string $type = 'default'): bool
+    public function recordFailure(string $reason): void
     {
-        // Check if circuit is open
-        $circuitKey = self::CIRCUIT_PREFIX . $type;
-        $circuitStatus = Cache::get($circuitKey);
+        $this->incrementCounter('failure');
+        $failureCount = $this->incrementFailureCount();
         
-        if (!$circuitStatus) {
-            return true;
-        }
+        Log::warning('Scraper failure recorded', [
+            'reason' => $reason,
+            'failure_count' => $failureCount
+        ]);
 
-        // If circuit was opened more than timeout ago, allow a test request
-        if (time() - $circuitStatus['opened_at'] > self::CIRCUIT_TIMEOUT) {
-            Cache::put($circuitKey, [
-                'status' => 'half_open',
-                'opened_at' => $circuitStatus['opened_at']
-            ], 3600);
-            return true;
+        if ($failureCount >= self::ERROR_THRESHOLD) {
+            $this->openCircuit();
         }
-
-        return false;
     }
 
-    public function getMetrics(string $type = 'default'): array
+    public function isCircuitOpen(): bool
     {
+        return Cache::get(self::CACHE_KEY_PREFIX . self::CIRCUIT_BREAKER_KEY, false);
+    }
+
+    public function getStats(): array
+    {
+        // Get recent results (last 5 minutes)
+        $recentResults = SearchResult::where('scraped_at', '>=', now()->subMinutes(5))
+            ->select('status', DB::raw('count(*) as count'))
+            ->groupBy('status')
+            ->get()
+            ->pluck('count', 'status')
+            ->toArray();
+
+        // Get total counts
+        $totalStats = SearchResult::select(
+            DB::raw('count(*) as total'),
+            DB::raw('sum(case when status = \'success\' then 1 else 0 end) as success'),
+            DB::raw('sum(case when status = \'failed\' then 1 else 0 end) as failed')
+        )->first();
+
+        // Get recent error messages
+        $recentErrors = SearchResult::where('status', 'failed')
+            ->where('scraped_at', '>=', now()->subHours(1))
+            ->select('error_message', DB::raw('count(*) as count'))
+            ->groupBy('error_message')
+            ->orderBy('count', 'desc')
+            ->limit(5)
+            ->get()
+            ->pluck('count', 'error_message')
+            ->toArray();
+
         return [
-            'success_count' => $this->getMetric($type . ':success', 0),
-            'failure_count' => $this->getMetric($type . ':failure', 0),
-            'success_rate' => $this->getSuccessRate($type),
-            'circuit_status' => $this->getCircuitStatus($type),
-            'failure_reasons' => $this->getFailureReasons($type)
+            'success_rate' => $this->calculateSuccessRate(),
+            'circuit_breaker_status' => $this->isCircuitOpen() ? 'open' : 'closed',
+            'recent_results' => $recentResults,
+            'total_processed' => $totalStats->total ?? 0,
+            'total_success' => $totalStats->success ?? 0,
+            'total_failed' => $totalStats->failed ?? 0,
+            'recent_errors' => $recentErrors
         ];
     }
 
-    private function incrementMetric(string $key): void
+    private function calculateSuccessRate(): float
     {
-        $fullKey = self::METRICS_PREFIX . $key;
-        Cache::increment($fullKey);
+        $window = now()->subSeconds(self::TIME_WINDOW);
         
-        // Set expiry if this is the first increment
-        if (Cache::get($fullKey) === 1) {
-            Cache::put($fullKey, 1, now()->addDay());
+        $stats = SearchResult::where('scraped_at', '>=', $window)
+            ->select(
+                DB::raw('count(*) as total'),
+                DB::raw('sum(case when status = \'success\' then 1 else 0 end) as success')
+            )
+            ->first();
+
+        if (!$stats || $stats->total === 0) {
+            return 100.0;
         }
+
+        return round(($stats->success / $stats->total) * 100, 2);
     }
 
-    private function getMetric(string $key, $default = null)
+    private function incrementCounter(string $type): void
     {
-        return Cache::get(self::METRICS_PREFIX . $key, $default);
+        $key = self::CACHE_KEY_PREFIX . $type . '_count';
+        Cache::increment($key);
     }
 
-    private function updateSuccessRate(string $type): void
+    private function incrementFailureCount(): int
     {
-        $success = $this->getMetric($type . ':success', 0);
-        $failure = $this->getMetric($type . ':failure', 0);
-        $total = $success + $failure;
-
-        if ($total > 0) {
-            $rate = $success / $total;
-            Cache::put(self::METRICS_PREFIX . $type . ':rate', $rate, now()->addDay());
-
-            // If success rate improves above threshold, close the circuit
-            if ($rate >= self::SUCCESS_THRESHOLD) {
-                $this->closeCircuit($type);
-            }
-        }
+        $key = self::CACHE_KEY_PREFIX . 'consecutive_failures';
+        return Cache::increment($key);
     }
 
-    private function getSuccessRate(string $type): float
+    private function resetFailureCount(): void
     {
-        return Cache::get(self::METRICS_PREFIX . $type . ':rate', 1.0);
+        Cache::forget(self::CACHE_KEY_PREFIX . 'consecutive_failures');
     }
 
-    private function openCircuit(string $type): void
+    private function openCircuit(): void
     {
-        Log::warning("Opening circuit breaker for scraper type: {$type}");
-        Cache::put(self::CIRCUIT_PREFIX . $type, [
-            'status' => 'open',
-            'opened_at' => time()
-        ], now()->addHour());
-    }
-
-    private function closeCircuit(string $type): void
-    {
-        Log::info("Closing circuit breaker for scraper type: {$type}");
-        Cache::forget(self::CIRCUIT_PREFIX . $type);
-    }
-
-    private function getCircuitStatus(string $type): string
-    {
-        $status = Cache::get(self::CIRCUIT_PREFIX . $type);
-        return $status ? $status['status'] : 'closed';
-    }
-
-    private function getFailureReasons(string $type): array
-    {
-        $reasons = [];
-        $pattern = self::METRICS_PREFIX . $type . ':failure:*';
-        $keys = Cache::get($pattern, []);
+        Cache::put(
+            self::CACHE_KEY_PREFIX . self::CIRCUIT_BREAKER_KEY,
+            true,
+            now()->addMinutes(5)
+        );
         
-        foreach ($keys as $key => $count) {
-            $reason = str_replace(self::METRICS_PREFIX . $type . ':failure:', '', $key);
-            $reasons[$reason] = $count;
-        }
+        Log::alert('Circuit breaker opened due to excessive failures');
+    }
 
-        return $reasons;
+    private function closeCircuit(): void
+    {
+        Cache::forget(self::CACHE_KEY_PREFIX . self::CIRCUIT_BREAKER_KEY);
+        Log::info('Circuit breaker closed');
     }
 }

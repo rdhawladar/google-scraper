@@ -3,9 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\Keyword;
+use App\Models\SearchResult;
+use App\Services\GoogleResultParser;
 use App\Services\ProxyManager;
 use App\Services\RateLimiter;
-use App\Services\GoogleResultParser;
 use App\Services\ScraperMonitor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,249 +15,235 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 class ScrapeGoogleResults implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $keyword;
-    protected $timeout = 30;
-    protected $proxyManager;
-    protected $rateLimiter;
-    protected $resultParser;
-    protected $monitor;
+    private $keyword;
+    private $maxRetries = 3;
+    public $timeout = 120;
+    public $tries = 3;
+    public $backoff = [30, 60, 120]; // Wait 30s, 60s, then 120s between retries
 
     public function __construct(Keyword $keyword)
     {
         $this->keyword = $keyword;
-        $this->proxyManager = new ProxyManager();
-        $this->rateLimiter = new RateLimiter();
-        $this->resultParser = new GoogleResultParser();
-        $this->monitor = new ScraperMonitor();
+        Log::info('ScrapeGoogleResults job constructed', [
+            'keyword_id' => $keyword->id,
+            'keyword' => $keyword->keyword,
+            'current_status' => $keyword->status
+        ]);
     }
 
-    public function handle()
-    {
+    public function handle(
+        GoogleResultParser $parser,
+        ProxyManager $proxyManager,
+        RateLimiter $rateLimiter,
+        ScraperMonitor $monitor
+    ) {
+        Log::info('Starting to process keyword', [
+            'keyword_id' => $this->keyword->id,
+            'keyword' => $this->keyword->keyword,
+            'attempt' => $this->attempts()
+        ]);
+
         try {
-            $this->keyword->update(['status' => 'processing']);
+            // Update keyword status to processing
+            DB::beginTransaction();
             
-            $results = $this->scrapeGoogle($this->keyword->keyword);
-            
-            $this->keyword->update([
-                'status' => 'completed',
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error scraping Google results: ' . $e->getMessage(), [
+            $updated = $this->keyword->update(['status' => 'processing']);
+            Log::info('Updating keyword status to processing', [
                 'keyword_id' => $this->keyword->id,
-                'keyword' => $this->keyword->keyword
+                'status_updated' => $updated,
+                'new_status' => 'processing'
             ]);
             
-            $this->keyword->update([
-                'status' => 'failed',
-                'results' => ['error' => $e->getMessage()]
+            DB::commit();
+
+            // Refresh the model to ensure we have the latest data
+            $this->keyword->refresh();
+            
+            Log::info('Current keyword status after update', [
+                'keyword_id' => $this->keyword->id,
+                'current_status' => $this->keyword->status
             ]);
-        }
-    }
 
-    protected function scrapeGoogle($query)
-    {
-        // Check circuit breaker before proceeding
-        if (!$this->monitor->canProceed()) {
-            Log::warning('Circuit breaker is open, delaying job', [
-                'keyword_id' => $this->keyword->id
-            ]);
-            $this->release(300); // Release back to queue with 5-minute delay
-            return;
-        }
+            // Check circuit breaker
+            if ($monitor->isCircuitOpen()) {
+                Log::warning('Circuit breaker is open, aborting scrape');
+                throw new \Exception('Circuit breaker is open');
+            }
 
-        $mobileUserAgents = [
-            // Latest iOS Safari
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
-            // Latest Chrome on Android
-            'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36',
-            // Latest Firefox on Android
-            'Mozilla/5.0 (Android 14; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0',
-            // Latest Edge on iOS
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/120.0.2210.126 Mobile/15E148 Safari/605.1.15',
-            // Latest Samsung Browser
-            'Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36'
-        ];
-
-        $results = [];
-        $retries = 0;
-        $maxRetries = 3;
-        $lastUsedAgent = null;
-
-        while ($retries < $maxRetries) {
-            try {
-                // Check rate limits before proceeding
-                if (!$this->rateLimiter->canProceed()) {
-                    Log::warning('Rate limit exceeded, delaying job', [
-                        'keyword_id' => $this->keyword->id,
-                        'remaining_attempts' => $maxRetries - $retries
-                    ]);
-                    
-                    // Release the job back to the queue with a delay
-                    $this->release(60);
-                    return;
-                }
-
-                // Ensure we don't use the same user agent twice in a row
-                do {
-                    $userAgent = $mobileUserAgents[array_rand($mobileUserAgents)];
-                } while ($userAgent === $lastUsedAgent && count($mobileUserAgents) > 1);
-                $lastUsedAgent = $userAgent;
-
-                Log::info('Attempting to scrape Google', [
+            // Check rate limit before proceeding
+            if (!$rateLimiter->canProceed()) {
+                Log::info('Rate limit reached, releasing job back to queue', [
                     'keyword_id' => $this->keyword->id,
-                    'keyword' => $this->keyword->keyword,
-                    'attempt' => $retries + 1,
-                    'user_agent' => $userAgent
+                    'delay' => 30
                 ]);
+                $this->release(30);
+                return;
+            }
 
-                // Add some randomization to the request parameters
-                $params = [
-                    'q' => $query,
-                    'num' => rand(8, 10), // Randomize results count
-                    'ie' => 'UTF-8',
-                    'source' => 'mobile',
-                    'gbv' => 1,
-                    'pws' => 0, // Disable personalized results
-                    'gl' => 'us', // Force US results
-                    'hl' => 'en' // Force English language
-                ];
+            // Apply rate limiting
+            $rateLimiter->throttle();
+            Log::info('Rate limit applied successfully');
 
-                // Add random parameters to appear more natural
-                if (rand(0, 1)) {
-                    $params['safe'] = 'active';
-                }
+            // Get proxy
+            $proxy = $proxyManager->getNextProxy();
+            Log::info('Got proxy for request', ['proxy' => $proxy]);
 
-                $proxy = $this->proxyManager->getNextProxy();
-                $requestOptions = [
-                    'timeout' => $this->timeout,
-                    'verify' => !empty($proxy), // Disable SSL verification when using proxy
-                ];
+            // Create search result record
+            $searchResult = SearchResult::create([
+                'keyword_id' => $this->keyword->id,
+                'status' => 'pending',
+                'scraped_at' => now()
+            ]);
 
-                if ($proxy) {
-                    $requestOptions['proxy'] = $proxy;
-                    Log::info('Using proxy for request', [
-                        'keyword_id' => $this->keyword->id,
-                        'proxy' => $proxy
-                    ]);
-                }
+            Log::info('Making Google search request', [
+                'keyword' => $this->keyword->keyword,
+                'search_result_id' => $searchResult->id
+            ]);
 
-                $response = Http::withHeaders([
-                    'User-Agent' => $userAgent,
-                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language' => 'en-US,en;q=0.9',
-                    'Accept-Encoding' => 'gzip, deflate',
+            // Make the request
+            $response = Http::withOptions([
+                'proxy' => $proxy,
+                'verify' => false,
+                'headers' => [
+                    'User-Agent' => $this->getRandomUserAgent(),
+                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language' => 'en-US,en;q=0.5',
+                    'Accept-Encoding' => 'gzip, deflate, br',
                     'Connection' => 'keep-alive',
-                    'Cache-Control' => 'max-age=0',
-                    'Upgrade-Insecure-Requests' => '1',
-                    'Sec-Fetch-Dest' => 'document',
-                    'Sec-Fetch-Mode' => 'navigate',
-                    'Sec-Fetch-Site' => 'none',
-                    'Sec-Fetch-User' => '?1'
-                ])
-                ->withOptions($requestOptions)
-                ->get('https://www.google.com/search', $params);
+                ]
+            ])->get('https://www.google.com/search', [
+                'q' => $this->keyword->keyword,
+                'hl' => 'en',
+                'num' => 100
+            ]);
 
-                Log::info('Google response received', [
+            if (!$response->successful()) {
+                Log::error('Google search request failed', [
                     'keyword_id' => $this->keyword->id,
                     'status_code' => $response->status(),
-                    'content_length' => strlen($response->body())
+                    'response' => $response->body()
                 ]);
+                throw new \Exception("HTTP request failed with status: " . $response->status());
+            }
 
-                if ($response->successful()) {
-                    $html = $response->body();
-                    
-                    // Parse results using the dedicated parser
-                    $results = $this->resultParser->parse($html);
+            Log::info('Successfully received Google search response', [
+                'keyword_id' => $this->keyword->id,
+                'status_code' => $response->status()
+            ]);
 
-                    if (!empty($results)) {
-                        // Store results in the database
-                        foreach ($results as $result) {
-                            $this->keyword->results()->create([
-                                'title' => $result['title'] ?? null,
-                                'url' => $result['url'] ?? null,
-                                'snippet' => $result['snippet'] ?? $result['content'] ?? null,
-                                'position' => $result['position'],
-                                'type' => $result['type'],
-                                'metadata' => json_encode($result['metadata'] ?? [])
-                            ]);
-                        }
+            // Parse the results
+            $results = $parser->parse($response->body());
+            Log::info('Successfully parsed search results', [
+                'keyword_id' => $this->keyword->id,
+                'total_ads' => $results['total_ads'],
+                'total_links' => $results['total_links']
+            ]);
 
-                        $this->monitor->recordSuccess();
-                        Log::info('Successfully scraped and stored results', [
-                            'keyword_id' => $this->keyword->id,
-                            'results_count' => count($results)
-                        ]);
+            DB::beginTransaction();
 
-                        break; // Exit retry loop on success
-                    } else {
-                        $this->monitor->recordFailure('no_results');
-                        // Save HTML for debugging
-                        if (app()->environment('local')) {
-                            Storage::disk('local')->put('google_response_' . $this->keyword->id . '.html', $html);
-                        }
-                        
-                        Log::warning('No results found in HTML', [
-                            'keyword_id' => $this->keyword->id,
-                            'html_sample' => substr($html, 0, 500)
-                        ]);
-                    }
-                } else {
-                    if ($proxy) {
-                        $this->proxyManager->markProxyUnhealthy($proxy);
-                    }
-                    $this->monitor->recordFailure('http_error', $response->status());
-                    $this->rateLimiter->trackFailure($proxy ?? 'default');
-                    Log::warning('Google request failed', [
-                        'keyword_id' => $this->keyword->id,
-                        'status_code' => $response->status(),
-                        'response' => substr($response->body(), 0, 500)
+            // Update search result
+            $searchResult->update([
+                'total_ads' => $results['total_ads'],
+                'total_links' => $results['total_links'],
+                'html_cache' => $results['html_cache'],
+                'organic_results' => $results['organic_results'],
+                'status' => 'success',
+                'scraped_at' => now()
+            ]);
+
+            // Update keyword status and results
+            $updated = $this->keyword->update([
+                'status' => 'completed',
+                'results' => $results['organic_results'],
+                'last_scraped_at' => now()
+            ]);
+
+            Log::info('Updating final keyword status', [
+                'keyword_id' => $this->keyword->id,
+                'status_updated' => $updated,
+                'new_status' => 'completed',
+                'search_result_id' => $searchResult->id
+            ]);
+
+            DB::commit();
+
+            // Refresh the model to ensure we have the latest data
+            $this->keyword->refresh();
+            
+            Log::info('Job completed successfully', [
+                'keyword_id' => $this->keyword->id,
+                'final_status' => $this->keyword->status,
+                'search_result_id' => $searchResult->id
+            ]);
+
+            $monitor->recordSuccess();
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            Log::error('Scraping failed for keyword', [
+                'keyword_id' => $this->keyword->id,
+                'keyword' => $this->keyword->keyword,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'attempt' => $this->attempts()
+            ]);
+
+            if ($this->attempts() < $this->tries) {
+                // Get the backoff time for this attempt
+                $backoffTime = $this->backoff[$this->attempts() - 1] ?? end($this->backoff);
+                Log::info('Releasing job back to queue for retry', [
+                    'keyword_id' => $this->keyword->id,
+                    'attempt' => $this->attempts(),
+                    'backoff_time' => $backoffTime
+                ]);
+                $this->release($backoffTime);
+            } else {
+                DB::beginTransaction();
+                
+                if (isset($searchResult)) {
+                    $searchResult->update([
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage()
                     ]);
                 }
 
-                // Add exponential backoff with jitter for retries
-                $baseDelay = pow(2, $retries); // 1, 2, 4 seconds
-                $jitter = rand(0, 1000) / 1000; // Random value between 0 and 1
-                $delay = $baseDelay + $jitter;
-                
-                Log::info("Waiting {$delay} seconds before next attempt");
-                usleep($delay * 1000000); // Convert to microseconds
-                $retries++;
-            } catch (\Exception $e) {
-                Log::error('Error in Google scraping attempt: ' . $e->getMessage(), [
-                    'keyword_id' => $this->keyword->id,
-                    'attempt' => $retries + 1,
-                    'exception' => get_class($e),
-                    'trace' => $e->getTraceAsString()
+                // Update keyword status to failed after all retries
+                $updated = $this->keyword->update([
+                    'status' => 'failed',
+                    'results' => ['error' => $e->getMessage()]
                 ]);
-                $this->monitor->recordFailure('exception', get_class($e));
-                $retries++;
-                usleep(rand(3000000, 7000000)); // Random delay between 3 and 7 seconds
+
+                Log::error('All retry attempts exhausted, marking keyword as failed', [
+                    'keyword_id' => $this->keyword->id,
+                    'status_updated' => $updated,
+                    'final_status' => 'failed',
+                    'search_result_id' => $searchResult->id ?? null
+                ]);
+
+                DB::commit();
+
+                $monitor->recordFailure($e->getMessage());
             }
         }
-
-        if (empty($results)) {
-            throw new \Exception('Failed to scrape Google results after ' . $maxRetries . ' attempts');
-        }
-
-        return $results;
     }
 
-    public function failed(\Throwable $exception)
+    private function getRandomUserAgent(): string
     {
-        Log::error('Job failed: ' . $exception->getMessage(), [
-            'keyword_id' => $this->keyword->id,
-            'keyword' => $this->keyword->keyword
-        ]);
+        $userAgents = [
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (iPad; CPU OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/92.0.4515.90 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Mobile Safari/537.36',
+            'Mozilla/5.0 (Linux; Android 11; SM-G991U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Mobile Safari/537.36'
+        ];
 
-        $this->keyword->update([
-            'status' => 'failed',
-            'results' => ['error' => $exception->getMessage()]
-        ]);
+        return $userAgents[array_rand($userAgents)];
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use DOMDocument;
 use DOMNode;
+use DOMXPath;
 use Illuminate\Support\Facades\Log;
 
 class GoogleResultParser
@@ -22,17 +23,22 @@ class GoogleResultParser
         ]
     ];
 
+    private $dom;
+    private $xpath;
+
     public function parse(string $html): array
     {
+        libxml_use_internal_errors(true);
+        $this->dom = new DOMDocument();
+        @$this->dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $this->xpath = new DOMXPath($this->dom);
+
         $results = [];
         $position = 1;
 
         try {
-            $dom = new DOMDocument();
-            @$dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
-
             // First, try to find featured snippets
-            $featuredSnippet = $this->extractFeaturedSnippet($dom);
+            $featuredSnippet = $this->extractFeaturedSnippet($this->dom);
             if ($featuredSnippet) {
                 $featuredSnippet['position'] = 0;
                 $featuredSnippet['type'] = 'featured_snippet';
@@ -40,7 +46,7 @@ class GoogleResultParser
             }
 
             // Then find organic results
-            foreach ($this->findResultContainers($dom) as $container) {
+            foreach ($this->findResultContainers($this->dom) as $container) {
                 $result = $this->parseResultContainer($container, $position);
                 if ($result) {
                     $results[] = $result;
@@ -58,7 +64,14 @@ class GoogleResultParser
             ]);
         }
 
-        return $results;
+        return [
+            'total_ads' => $this->countAds(),
+            'total_links' => $this->countLinks(),
+            'html_cache' => $this->sanitizeHtml($html),
+            'organic_results' => $this->extractOrganicResults(),
+            'scraped_at' => now(),
+            'results' => $results,
+        ];
     }
 
     private function findResultContainers(DOMDocument $dom): array
@@ -178,7 +191,7 @@ class GoogleResultParser
     {
         try {
             $xpath = $this->convertCssToXPath($selector);
-            $domXPath = new \DOMXPath($context instanceof DOMDocument ? $context : $context->ownerDocument);
+            $domXPath = new DOMXPath($context instanceof DOMDocument ? $context : $context->ownerDocument);
             return $domXPath->query($xpath, $context)->item(0);
         } catch (\Exception $e) {
             return null;
@@ -189,7 +202,7 @@ class GoogleResultParser
     {
         try {
             $xpath = $this->convertCssToXPath($selector);
-            $domXPath = new \DOMXPath($context instanceof DOMDocument ? $context : $context->ownerDocument);
+            $domXPath = new DOMXPath($context instanceof DOMDocument ? $context : $context->ownerDocument);
             $nodes = $domXPath->query($xpath, $context);
             return $nodes ? iterator_to_array($nodes) : [];
         } catch (\Exception $e) {
@@ -216,5 +229,58 @@ class GoogleResultParser
         }
 
         return $xpath;
+    }
+
+    private function countAds(): int
+    {
+        // Count ads in top section
+        $topAds = $this->xpath->query('//div[contains(@class, "uEierd")]')->length;
+        
+        // Count ads in bottom section
+        $bottomAds = $this->xpath->query('//div[contains(@class, "Krnil")]')->length;
+        
+        return $topAds + $bottomAds;
+    }
+
+    private function countLinks(): int
+    {
+        return $this->xpath->query('//a[@href]')->length;
+    }
+
+    private function extractOrganicResults(): array
+    {
+        $results = [];
+        $organicResults = $this->xpath->query('//div[@class="g"]');
+
+        foreach ($organicResults as $result) {
+            $titleNode = $this->xpath->query('.//h3', $result)->item(0);
+            $linkNode = $this->xpath->query('.//a', $result)->item(0);
+            $snippetNode = $this->xpath->query('.//div[@class="VwiC3b"]', $result)->item(0);
+
+            if ($titleNode && $linkNode) {
+                $results[] = [
+                    'title' => $titleNode->textContent,
+                    'url' => $linkNode->getAttribute('href'),
+                    'snippet' => $snippetNode ? $snippetNode->textContent : '',
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    private function sanitizeHtml(string $html): string
+    {
+        // Remove any script and style elements
+        $html = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $html);
+        $html = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $html);
+        
+        // Remove inline scripts and event handlers
+        $html = preg_replace('/on\w+="[^"]*"/', '', $html);
+        
+        // Compress the HTML by removing extra whitespace
+        $html = preg_replace('/\s+/', ' ', $html);
+        
+        return trim($html);
     }
 }
