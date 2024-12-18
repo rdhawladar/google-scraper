@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\KeywordController;
+use App\Http\Controllers\ScraperAnalyticsController;
 
 // Public routes
 Route::post('/register', [AuthController::class, 'register']);
@@ -18,4 +19,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/keywords/{keyword}', [KeywordController::class, 'show']);
     Route::post('/keywords/upload', [KeywordController::class, 'upload']);
     Route::post('/keywords/{keyword}/retry', [KeywordController::class, 'retry']);
+
+    // Analytics routes
+    Route::get('/analytics/stats', [ScraperAnalyticsController::class, 'getStats']);
+    Route::get('/analytics/hourly', [ScraperAnalyticsController::class, 'getHourlyStats']);
+    Route::get('/analytics/failures', [ScraperAnalyticsController::class, 'getFailureAnalysis']);
 });
