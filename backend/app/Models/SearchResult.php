@@ -9,21 +9,39 @@ class SearchResult extends Model
 {
     protected $fillable = [
         'keyword_id',
-        'title',
-        'url',
-        'snippet',
-        'position',
-        'type',
-        'metadata'
+        'total_ads',
+        'total_links',
+        'html_cache',
+        'organic_results',
+        'status',
+        'error_message',
+        'scraped_at'
     ];
 
     protected $casts = [
-        'metadata' => 'array',
-        'position' => 'integer'
+        'organic_results' => 'array',
+        'scraped_at' => 'datetime',
+        'total_ads' => 'integer',
+        'total_links' => 'integer'
     ];
 
     public function keyword(): BelongsTo
     {
         return $this->belongsTo(Keyword::class);
+    }
+
+    public function scopeSuccessful($query)
+    {
+        return $query->where('status', 'success');
+    }
+
+    public function scopeFailed($query)
+    {
+        return $query->where('status', 'failed');
+    }
+
+    public function scopeRecent($query, $limit = 10)
+    {
+        return $query->orderBy('scraped_at', 'desc')->limit($limit);
     }
 }

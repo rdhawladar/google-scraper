@@ -11,15 +11,18 @@ return new class extends Migration
         Schema::create('search_results', function (Blueprint $table) {
             $table->id();
             $table->foreignId('keyword_id')->constrained()->onDelete('cascade');
-            $table->string('title')->nullable();
-            $table->text('url')->nullable();
-            $table->text('snippet')->nullable();
-            $table->integer('position');
-            $table->string('type')->default('organic');
-            $table->json('metadata')->nullable();
+            $table->integer('total_ads')->nullable();
+            $table->integer('total_links')->nullable();
+            $table->text('html_cache')->nullable();
+            $table->json('organic_results')->nullable();
+            $table->string('status')->default('pending');
+            $table->text('error_message')->nullable();
+            $table->timestamp('scraped_at')->nullable();
             $table->timestamps();
 
-            $table->index(['keyword_id', 'position']);
+            // Add indexes for common queries
+            $table->index('status');
+            $table->index('scraped_at');
         });
     }
 
