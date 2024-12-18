@@ -6,6 +6,7 @@ use App\Models\Keyword;
 use App\Services\ProxyManager;
 use App\Services\RateLimiter;
 use App\Services\GoogleResultParser;
+use App\Services\ScraperMonitor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,6 +25,7 @@ class ScrapeGoogleResults implements ShouldQueue
     protected $proxyManager;
     protected $rateLimiter;
     protected $resultParser;
+    protected $monitor;
 
     public function __construct(Keyword $keyword)
     {
@@ -31,6 +33,7 @@ class ScrapeGoogleResults implements ShouldQueue
         $this->proxyManager = new ProxyManager();
         $this->rateLimiter = new RateLimiter();
         $this->resultParser = new GoogleResultParser();
+        $this->monitor = new ScraperMonitor();
     }
 
     public function handle()
@@ -58,6 +61,15 @@ class ScrapeGoogleResults implements ShouldQueue
 
     protected function scrapeGoogle($query)
     {
+        // Check circuit breaker before proceeding
+        if (!$this->monitor->canProceed()) {
+            Log::warning('Circuit breaker is open, delaying job', [
+                'keyword_id' => $this->keyword->id
+            ]);
+            $this->release(300); // Release back to queue with 5-minute delay
+            return;
+        }
+
         $mobileUserAgents = [
             // Latest iOS Safari
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
@@ -175,6 +187,7 @@ class ScrapeGoogleResults implements ShouldQueue
                             ]);
                         }
 
+                        $this->monitor->recordSuccess();
                         Log::info('Successfully scraped and stored results', [
                             'keyword_id' => $this->keyword->id,
                             'results_count' => count($results)
@@ -182,6 +195,7 @@ class ScrapeGoogleResults implements ShouldQueue
 
                         break; // Exit retry loop on success
                     } else {
+                        $this->monitor->recordFailure('no_results');
                         // Save HTML for debugging
                         if (app()->environment('local')) {
                             Storage::disk('local')->put('google_response_' . $this->keyword->id . '.html', $html);
@@ -193,16 +207,16 @@ class ScrapeGoogleResults implements ShouldQueue
                         ]);
                     }
                 } else {
+                    if ($proxy) {
+                        $this->proxyManager->markProxyUnhealthy($proxy);
+                    }
+                    $this->monitor->recordFailure('http_error', $response->status());
+                    $this->rateLimiter->trackFailure($proxy ?? 'default');
                     Log::warning('Google request failed', [
                         'keyword_id' => $this->keyword->id,
                         'status_code' => $response->status(),
                         'response' => substr($response->body(), 0, 500)
                     ]);
-
-                    if ($proxy) {
-                        $this->proxyManager->markProxyUnhealthy($proxy);
-                    }
-                    $this->rateLimiter->trackFailure($proxy ?? 'default');
                 }
 
                 // Add exponential backoff with jitter for retries
@@ -220,6 +234,7 @@ class ScrapeGoogleResults implements ShouldQueue
                     'exception' => get_class($e),
                     'trace' => $e->getTraceAsString()
                 ]);
+                $this->monitor->recordFailure('exception', get_class($e));
                 $retries++;
                 usleep(rand(3000000, 7000000)); // Random delay between 3 and 7 seconds
             }
