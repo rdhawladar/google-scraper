@@ -120,7 +120,7 @@ class ScrapeGoogleResults implements ShouldQueue
             ])->get('https://www.google.com/search', [
                 'q' => $this->keyword->keyword,
                 'hl' => 'en',
-                'num' => 100
+                'num' => 10
             ]);
 
             if (!$response->successful()) {
