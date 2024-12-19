@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SearchResult extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'keyword_id',
         'total_ads',

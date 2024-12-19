@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\SearchResult;
-use Illuminate\Http\Request;
 
 /**
  * @OA\Tag(
