@@ -7,9 +7,12 @@ use App\Jobs\ScrapeGoogleResults;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class KeywordController extends Controller
 {
+    private const MAX_KEYWORDS_PER_UPLOAD = 100;
+
     public function index()
     {
         $keywords = Auth::user()->keywords()->orderBy('created_at', 'desc')->get();
@@ -36,6 +39,19 @@ class KeywordController extends Controller
                 array_shift($keywords);
             }
 
+            // Check keyword limit per upload
+            if (count($keywords) > self::MAX_KEYWORDS_PER_UPLOAD) {
+                throw ValidationException::withMessages([
+                    'file' => [
+                        sprintf(
+                            'Maximum %d keywords allowed per upload. Found: %d keywords.',
+                            self::MAX_KEYWORDS_PER_UPLOAD,
+                            count($keywords)
+                        )
+                    ]
+                ]);
+            }
+
             $createdKeywords = [];
             
             // Create keyword records and dispatch jobs
@@ -53,13 +69,16 @@ class KeywordController extends Controller
             }
 
             return response()->json([
-                'message' => 'Keywords uploaded successfully',
-                'count' => count($createdKeywords)
+                'message' => count($createdKeywords) . ' keywords uploaded successfully',
+                'keywords' => $createdKeywords
             ]);
+
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error uploading keywords: ' . $e->getMessage());
             return response()->json([
-                'message' => 'Error processing file'
+                'message' => 'Error uploading keywords: ' . $e->getMessage()
             ], 500);
         }
     }

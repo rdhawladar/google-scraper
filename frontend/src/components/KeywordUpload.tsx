@@ -3,24 +3,65 @@ import { Card, Form, Button, Alert, ProgressBar } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import axios from '../utils/axios';
 
+const MAX_KEYWORDS_PER_UPLOAD = 100;
+
 export default function KeywordUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [keywordCount, setKeywordCount] = useState(0);
   const { token } = useAuth();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const validateCsvContent = async (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        const lines = text.split('\n').filter(line => line.trim());
+        
+        // Remove header if it exists
+        const hasHeader = lines.length > 0 && isNaN(Number(lines[0].trim()));
+        const count = hasHeader ? lines.length - 1 : lines.length;
+        
+        if (count > MAX_KEYWORDS_PER_UPLOAD) {
+          reject(new Error(`Maximum ${MAX_KEYWORDS_PER_UPLOAD} keywords allowed per upload. Found: ${count} keywords.`));
+        } else {
+          resolve(count);
+        }
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('Error reading file'));
+      };
+      
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
+      
       if (selectedFile.type !== 'text/csv') {
         setError('Please upload a CSV file');
         setFile(null);
+        setKeywordCount(0);
         return;
       }
-      setFile(selectedFile);
-      setError('');
+
+      try {
+        const count = await validateCsvContent(selectedFile);
+        setKeywordCount(count);
+        setFile(selectedFile);
+        setError('');
+      } catch (err: any) {
+        setError(err.message);
+        setFile(null);
+        setKeywordCount(0);
+      }
     }
   };
 
@@ -52,15 +93,15 @@ export default function KeywordUpload() {
         },
       });
 
-      setSuccess('File uploaded successfully! Keywords are being processed.');
+      setSuccess(response.data.message);
       setFile(null);
-      if (e.target instanceof HTMLFormElement) {
-        e.target.reset();
-      }
+      setKeywordCount(0);
+      
     } catch (err: any) {
       setError(
-        err.response?.data?.message || 
-        'An error occurred while uploading the file'
+        err.response?.data?.message ||
+        err.response?.data?.file?.[0] ||
+        'Error uploading file'
       );
     } finally {
       setUploading(false);
@@ -72,23 +113,24 @@ export default function KeywordUpload() {
     <Card className="shadow-sm">
       <Card.Body>
         <Card.Title>Upload Keywords</Card.Title>
-        <Card.Text className="text-muted mb-4">
-          Upload a CSV file containing keywords to scrape. The file should have one keyword per line.
-        </Card.Text>
-
-        {error && <Alert variant="danger">{error}</Alert>}
-        {success && <Alert variant="success">{success}</Alert>}
-
+        
         <Form onSubmit={handleUpload}>
           <Form.Group controlId="formFile" className="mb-3">
-            <Form.Label>Choose CSV file</Form.Label>
+            <Form.Label>Choose a CSV file containing keywords</Form.Label>
             <Form.Control
               type="file"
               accept=".csv"
               onChange={handleFileChange}
               disabled={uploading}
             />
+            <Form.Text className="text-muted">
+              Maximum {MAX_KEYWORDS_PER_UPLOAD} keywords allowed per upload.
+              {keywordCount > 0 && ` Found: ${keywordCount} keywords in file.`}
+            </Form.Text>
           </Form.Group>
+
+          {error && <Alert variant="danger">{error}</Alert>}
+          {success && <Alert variant="success">{success}</Alert>}
 
           {uploading && (
             <ProgressBar
@@ -99,11 +141,11 @@ export default function KeywordUpload() {
           )}
 
           <Button
-            type="submit"
             variant="primary"
-            disabled={!file || uploading}
+            type="submit"
+            disabled={!file || uploading || keywordCount === 0}
           >
-            {uploading ? 'Uploading...' : 'Upload Keywords'}
+            {uploading ? 'Uploading...' : 'Upload'}
           </Button>
         </Form>
       </Card.Body>
