@@ -22,17 +22,22 @@ RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 # Install composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set working directory
-WORKDIR /var/www
+# Set working directory for backend
+WORKDIR /var/www/backend
 
-# Copy application files
-COPY . .
+# Copy backend files
+COPY ./backend .
 
 # Install backend dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Install and build frontend
+# Set working directory for frontend
 WORKDIR /var/www/frontend
+
+# Copy frontend files
+COPY ./frontend .
+
+# Install and build frontend
 RUN npm install
 RUN npm run build
 
@@ -57,7 +62,7 @@ COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 WORKDIR /var/www
 
 # Set permissions
-RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
+RUN chown -R www-data:www-data /var/www/backend/storage /var/www/backend/bootstrap/cache
 
 # Expose port 80
 EXPOSE 80
