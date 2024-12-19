@@ -9,16 +9,112 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * @OA\Tag(
+ *     name="Keywords",
+ *     description="API Endpoints for managing keywords"
+ * )
+ */
 class KeywordController extends Controller
 {
     private const MAX_KEYWORDS_PER_UPLOAD = 100;
 
+    /**
+     * @OA\Get(
+     *     path="/api/keywords",
+     *     summary="Get all keywords",
+     *     description="Returns a list of all keywords for the authenticated user",
+     *     operationId="getKeywords",
+     *     tags={"Keywords"},
+     *     security={{"bearerAuth": {}}},
+     *     @OA\Response(
+     *         response=200,
+     *         description="Successful operation",
+     *         @OA\JsonContent(
+     *             type="array",
+     *             @OA\Items(
+     *                 @OA\Property(property="id", type="integer", example=1),
+     *                 @OA\Property(property="keyword", type="string", example="cloud computing"),
+     *                 @OA\Property(property="status", type="string", enum={"pending", "processing", "completed", "failed"}, example="completed"),
+     *                 @OA\Property(property="created_at", type="string", format="date-time"),
+     *                 @OA\Property(property="updated_at", type="string", format="date-time")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Unauthenticated"
+     *     )
+     * )
+     */
     public function index()
     {
         $keywords = Auth::user()->keywords()->orderBy('created_at', 'desc')->get();
         return response()->json($keywords);
     }
 
+    /**
+     * @OA\Post(
+     *     path="/api/keywords/upload",
+     *     summary="Upload keywords",
+     *     description="Upload a CSV file containing keywords to scrape",
+     *     operationId="uploadKeywords",
+     *     tags={"Keywords"},
+     *     security={{"bearerAuth": {}}},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="multipart/form-data",
+     *             @OA\Schema(
+     *                 @OA\Property(
+     *                     property="file",
+     *                     type="string",
+     *                     format="binary",
+     *                     description="CSV file containing keywords (max 1MB)"
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Keywords uploaded successfully",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="message", type="string", example="5 keywords uploaded successfully"),
+     *             @OA\Property(
+     *                 property="keywords",
+     *                 type="array",
+     *                 @OA\Items(
+     *                     @OA\Property(property="id", type="integer", example=1),
+     *                     @OA\Property(property="keyword", type="string", example="cloud computing"),
+     *                     @OA\Property(property="status", type="string", example="pending"),
+     *                     @OA\Property(property="created_at", type="string", format="date-time"),
+     *                     @OA\Property(property="updated_at", type="string", format="date-time")
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=400,
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="message", type="string", example="The given data was invalid."),
+     *             @OA\Property(
+     *                 property="errors",
+     *                 type="object",
+     *                 @OA\Property(
+     *                     property="file",
+     *                     type="array",
+     *                     @OA\Items(type="string", example="Maximum 100 keywords allowed per upload. Found: 101 keywords.")
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Unauthenticated"
+     *     )
+     * )
+     */
     public function upload(Request $request)
     {
         $request->validate([
@@ -83,6 +179,42 @@ class KeywordController extends Controller
         }
     }
 
+    /**
+     * @OA\Get(
+     *     path="/api/keywords/{keyword}",
+     *     summary="Get keyword details",
+     *     description="Returns details of a specific keyword",
+     *     operationId="getKeyword",
+     *     tags={"Keywords"},
+     *     security={{"bearerAuth": {}}},
+     *     @OA\Parameter(
+     *         name="keyword",
+     *         in="path",
+     *         description="Keyword ID",
+     *         required=true,
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Successful operation",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="id", type="integer", example=1),
+     *             @OA\Property(property="keyword", type="string", example="cloud computing"),
+     *             @OA\Property(property="status", type="string", enum={"pending", "processing", "completed", "failed"}, example="completed"),
+     *             @OA\Property(property="created_at", type="string", format="date-time"),
+     *             @OA\Property(property="updated_at", type="string", format="date-time")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Keyword not found"
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Unauthenticated"
+     *     )
+     * )
+     */
     public function show(Keyword $keyword)
     {
         // Ensure the user can only view their own keywords
@@ -93,6 +225,38 @@ class KeywordController extends Controller
         return response()->json($keyword);
     }
 
+    /**
+     * @OA\Post(
+     *     path="/api/keywords/{keyword}/retry",
+     *     summary="Retry failed keyword",
+     *     description="Retries scraping for a failed keyword",
+     *     operationId="retryKeyword",
+     *     tags={"Keywords"},
+     *     security={{"bearerAuth": {}}},
+     *     @OA\Parameter(
+     *         name="keyword",
+     *         in="path",
+     *         description="Keyword ID",
+     *         required=true,
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Keyword queued for retry",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="message", type="string", example="Keyword queued for retry")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=404,
+     *         description="Keyword not found"
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Unauthenticated"
+     *     )
+     * )
+     */
     public function retry(Keyword $keyword)
     {
         // Ensure the user can only retry their own keywords
