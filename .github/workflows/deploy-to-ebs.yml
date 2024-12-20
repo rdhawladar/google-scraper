@@ -58,3 +58,9 @@ jobs:
           region: ${{ env.AWS_REGION }}
           deployment_package: deploy.zip
           version_label: ${{ github.sha }}
+          wait_for_deployment: true
+          use_existing_version_if_available: false
+          deployment_description: "Deploy from GitHub Actions"
+          environment_variables: |
+            InstanceType=t2.micro
+            InstanceTypeFamily=t2
