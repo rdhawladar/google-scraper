@@ -84,7 +84,7 @@ export default function KeywordList() {
           Authorization: `Bearer ${token}`,
         },
       });
-      setKeywords(response.data);
+      setKeywords(response.data?.data || []);
       setError("");
     } catch (err: any) {
       setError(
