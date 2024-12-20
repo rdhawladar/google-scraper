@@ -3,7 +3,7 @@ name: Deploy to AWS Elastic Beanstalk
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   deploy:
@@ -57,54 +57,6 @@ jobs:
           # Create .ebextensions directory
           mkdir -p .ebextensions
 
-          # Create instance configuration
-          echo 'option_settings:
-            aws:autoscaling:launchconfiguration:
-              InstanceType: t2.micro
-              IamInstanceProfile: aws-elasticbeanstalk-ec2-role
-              SecurityGroups: {"Fn::GetAtt" : ["AWSEBSecurityGroup", "GroupId"]}
-            aws:ec2:vpc:
-              VPCId: vpc-0bc27d3764c263367
-              Subnets: subnet-0e033540039a89026,subnet-0f235bba2fb07b7ea
-              ELBSubnets: subnet-0e033540039a89026,subnet-0f235bba2fb07b7ea
-              DBSubnets: subnet-0e033540039a89026,subnet-0f235bba2fb07b7ea
-              AssociatePublicIpAddress: true
-            aws:rds:dbinstance:
-              DBEngine: postgres
-              DBEngineVersion: 15.3
-              DBInstanceClass: db.t3.micro
-              DBAllocatedStorage: 20
-              MultiAZDatabase: false
-              DBDeletionPolicy: Snapshot
-            aws:elasticbeanstalk:application:environment:
-              APP_NAME: "GoogleScraper"
-              APP_ENV: "production"
-              APP_DEBUG: "false"
-              DB_CONNECTION: pgsql
-              DB_HOST: ${RDS_HOSTNAME}
-              DB_PORT: ${RDS_PORT}
-              DB_DATABASE: ${RDS_DB_NAME}
-              DB_USERNAME: ${RDS_USERNAME}
-              DB_PASSWORD: ${RDS_PASSWORD}
-            aws:elasticbeanstalk:container:docker:
-              memory: 512' > .ebextensions/01-options.config
-
-          # Create security group configuration
-          echo 'Resources:
-            AWSEBSecurityGroup:
-              Type: AWS::EC2::SecurityGroup
-              Properties:
-                GroupDescription: Security group for Elastic Beanstalk environment
-                VpcId: vpc-0bc27d3764c263367
-                SecurityGroupIngress:
-                  - IpProtocol: tcp
-                    FromPort: 80
-                    ToPort: 80
-                    CidrIp: 0.0.0.0/0
-                  - IpProtocol: tcp
-                    FromPort: 443
-                    ToPort: 443
-                    CidrIp: 0.0.0.0/0' > .ebextensions/02-securitygroup.config
 
           # Create zip file containing both Dockerrun.aws.json and .ebextensions
           zip -r deploy.zip Dockerrun.aws.json .ebextensions/
@@ -114,8 +66,8 @@ jobs:
         with:
           aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          application_name: google-scraper
-          environment_name: google-scraper-prod
+          application_name: nimble1
+          environment_name: Nimble1-env
           region: ap-southeast-1
           version_label: ${{ github.ref_name }}
           deployment_package: deploy.zip
