@@ -58,21 +58,43 @@ jobs:
           mkdir -p .ebextensions
 
           # Create ECR config
-          echo 'packages:
-            yum:
-              amazon-ecr-credential-helper: []
-          
-          files:
-            "/root/.docker/config.json":
+          echo 'files:
+            "/etc/docker/config.json":
               mode: "000644"
               owner: root
               group: root
               content: |
                 {
-                  "credHelpers": {
-                    "248158220667.dkr.ecr.ap-southeast-1.amazonaws.com": "ecr-login"
-                  }
+                  "credsStore": "ecr-login"
                 }
+
+            "/home/ec2-user/.aws/config":
+              mode: "000600"
+              owner: ec2-user
+              group: ec2-user
+              content: |
+                [default]
+                region = ap-southeast-1
+
+            "/home/ec2-user/.aws/credentials":
+              mode: "000600"
+              owner: ec2-user
+              group: ec2-user
+              content: |
+                [default]
+                region = ap-southeast-1
+
+          packages:
+            yum:
+              amazon-ecr-credential-helper: []
+              docker: []
+
+          commands:
+            01_create_dirs:
+              command: |
+                mkdir -p /home/ec2-user/.aws
+                mkdir -p /etc/docker
+                chown -R ec2-user:ec2-user /home/ec2-user/.aws
           ' > .ebextensions/01-ecr-config.config
 
           # Create environment config
@@ -90,25 +112,9 @@ jobs:
             aws:autoscaling:launchconfiguration:
               IamInstanceProfile: aws-elasticbeanstalk-ec2-role
               InstanceType: t2.micro
-              SecurityGroups: sg-0c0a7a9e24cb57425
-            aws:ec2:vpc:
-              VPCId: vpc-0bc27d3764c263367
-              Subnets: subnet-0e033540039a89026
-              ELBSubnets: subnet-0e033540039a89026
-              AssociatePublicIpAddress: true
             aws:elasticbeanstalk:environment:
               EnvironmentType: SingleInstance
               ServiceRole: aws-elasticbeanstalk-service-role
-            aws:elasticbeanstalk:command:
-              BatchSize: "1"
-              BatchSizeType: Fixed
-              DeploymentPolicy: AllAtOnce
-            aws:elasticbeanstalk:managedactions:
-              ManagedActionsEnabled: true
-              PreferredStartTime: "Tue:09:00"
-            aws:elasticbeanstalk:managedactions:platformupdate:
-              UpdateLevel: minor
-              InstanceRefreshEnabled: true
           ' > .ebextensions/02-env.config
 
           # Create zip file
