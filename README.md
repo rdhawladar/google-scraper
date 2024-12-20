@@ -6,7 +6,7 @@ A powerful web application for scraping and analyzing Google search results with
 
 - Automated Google search results scraping
 - Bulk keyword processing
-- CSV import/export functionality
+- CSV import functionality
 - Real-time scraping status monitoring
 - Search result analytics and insights
 - Proxy support for reliable scraping
@@ -23,9 +23,9 @@ A powerful web application for scraping and analyzing Google search results with
 
 ### Frontend
 - React.js
-- Modern UI components
+- Bootstrap for UI
 - Axios for API requests
-- State management with React Context/Redux
+- State management with React Context
 
 ### DevOps & Infrastructure
 - Docker & Docker Compose
@@ -123,31 +123,37 @@ docker-compose exec backend php artisan migrate
 ## API Endpoints
 
 ### Authentication
-- POST `/api/auth/login` - User login
-- POST `/api/auth/register` - User registration
-- POST `/api/auth/logout` - User logout
+- POST `/api/login` - User login
+- POST `/api/register` - User registration
 
-### Scraping
-- POST `/api/scrape/start` - Start scraping job
-- GET `/api/scrape/status/{jobId}` - Get scraping job status
-- POST `/api/scrape/bulk` - Start bulk scraping job
-- GET `/api/scrape/results` - Get scraping results
+### Protected Routes (Require Authentication)
+- GET `/api/user` - Get authenticated user details
+- POST `/api/logout` - User logout
 
 ### Keywords
 - GET `/api/keywords` - List all keywords
-- POST `/api/keywords/import` - Import keywords from CSV
-- GET `/api/keywords/export` - Export keywords to CSV
-
-### Results
-- GET `/api/results` - Get all scraping results
-- GET `/api/results/{id}` - Get specific result
-- GET `/api/results/export` - Export results to CSV
+- POST `/api/keywords/upload` - Upload keywords
+- GET `/api/keywords/{keyword}` - Get specific keyword details
+- DELETE `/api/keywords/{keyword}` - Delete a keyword
+- POST `/api/keywords/{keyword}/retry` - Retry processing a keyword
 
 ## API Documentation
 
 Detailed API documentation is available at:
 - Development: `http://localhost:8000/api/documentation`
 - Production: `https://your-domain.com/api/documentation`
+
+## Roadmap
+
+### Improvement plans
+
+- Optimized search and pagination support from backednd
+- Rate limiting optimization
+- Batch processing improvements
+- Image search results extraction
+- Advanced SERP feature extraction (Featured snippets, Knowledge panels)
+- Custom user agent rotation
+
 
 The API documentation is powered by Swagger/OpenAPI and provides interactive documentation for all available endpoints.
 
