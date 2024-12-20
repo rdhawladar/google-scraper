@@ -29,12 +29,11 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build Frontend
-        env:
-          VITE_API_URL: http://${{ env.EB_APPLICATION }}.ap-southeast-1.elasticbeanstalk.com
         run: |
           cd frontend
-          docker build --build-arg VITE_API_URL=$VITE_API_URL -t frontend-prod --target production .
-          docker run --rm -v $(pwd)/dist:/app/dist frontend-prod npm run build
+          echo "VITE_API_URL=http://${{ env.EB_APPLICATION }}.ap-southeast-1.elasticbeanstalk.com" > .env
+          docker build -t frontend-prod --target production .
+          docker run --rm -v $(pwd)/dist:/app/dist frontend-prod
 
       - name: Generate production environment file
         run: |
@@ -61,9 +60,17 @@ jobs:
             },
             "Ports": [
               {
-                "ContainerPort": "80"
+                "ContainerPort": "80",
+                "HostPort": "80"
               }
-            ]
+            ],
+            "Volumes": [
+              {
+                "HostDirectory": "/var/app/current",
+                "ContainerDirectory": "/var/www/html"
+              }
+            ],
+            "Logging": "/var/log/nginx"
           }' > Dockerrun.aws.json
 
       - name: Create deployment package

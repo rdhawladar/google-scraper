@@ -28,8 +28,23 @@ COPY --from=composer:2.6.5 /usr/bin/composer /usr/bin/composer
 # Set working directory
 WORKDIR /var/www/html
 
+# Create necessary directories and set permissions
+RUN mkdir -p /var/www/html/public \
+    && mkdir -p /var/log/supervisor \
+    && mkdir -p /var/log/nginx \
+    && mkdir -p /run/php \
+    && chown -R www-data:www-data /var/www/html \
+    && chown -R www-data:www-data /var/log/supervisor \
+    && chown -R www-data:www-data /var/log/nginx \
+    && chown -R www-data:www-data /run/php
+
 # Copy nginx configuration
 COPY docker/nginx.conf /etc/nginx/sites-available/default
+
+# Copy PHP-FPM configuration
+RUN echo "php_admin_value[error_log] = /var/log/php-fpm/php-error.log" >> /usr/local/etc/php-fpm.d/www.conf \
+    && echo "php_admin_flag[log_errors] = on" >> /usr/local/etc/php-fpm.d/www.conf \
+    && echo "catch_workers_output = yes" >> /usr/local/etc/php-fpm.d/www.conf
 
 # Copy application files
 COPY . .
@@ -37,11 +52,10 @@ COPY . .
 # Install dependencies
 RUN composer install --no-interaction --no-scripts
 
-# Set permissions
-RUN chown -R www-data:www-data storage bootstrap/cache
+# Set permissions again after copying files
+RUN chown -R www-data:www-data /var/www/html
 
 # Set up supervisor
-RUN mkdir -p /etc/supervisor/conf.d/
 COPY docker/supervisor.conf /etc/supervisor/conf.d/supervisor.conf
 
 # Copy entrypoint script
