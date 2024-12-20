@@ -3,7 +3,7 @@ name: Deploy to AWS Elastic Beanstalk
 on:
   push:
     branches:
-      - ebs-deployment  # or your production branch
+      - ebs-deployment # or your production branch
 
 env:
   AWS_REGION: ap-southeast-1
@@ -22,6 +22,14 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
 
       - name: Generate production environment file
         run: |
@@ -46,7 +54,7 @@ jobs:
       - name: Create deployment package
         run: |
           cd backend
-          zip -r ../deploy.zip .
+          zip -r ../deploy-${{ github.sha }}.zip .
 
       - name: Deploy to Elastic Beanstalk
         uses: einaregilsson/beanstalk-deploy@v21
@@ -56,11 +64,7 @@ jobs:
           application_name: ${{ env.EB_APPLICATION }}
           environment_name: ${{ env.EB_ENVIRONMENT }}
           region: ${{ env.AWS_REGION }}
-          deployment_package: deploy.zip
+          deployment_package: deploy-${{ github.sha }}.zip
           version_label: ${{ github.sha }}
           wait_for_deployment: true
-          use_existing_version_if_available: false
           deployment_description: "Deploy from GitHub Actions"
-          environment_variables: |
-            InstanceType=t2.micro
-            InstanceTypeFamily=t2
