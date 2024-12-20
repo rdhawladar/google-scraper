@@ -1,0 +1,60 @@
+name: Deploy to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - ebs-deployment  # or your production branch
+
+env:
+  AWS_REGION: ap-southeast-1
+  EB_APPLICATION: nimble1
+  EB_ENVIRONMENT: Nimble1-env
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Generate production environment file
+        run: |
+          cd backend
+          echo "APP_NAME=NimbleScraper" > .env
+          echo "APP_ENV=production" >> .env
+          echo "APP_KEY=${{ secrets.APP_KEY }}" >> .env
+          echo "APP_DEBUG=false" >> .env
+          echo "APP_URL=http://nimble1.ap-southeast-1.elasticbeanstalk.com" >> .env
+          echo "DB_CONNECTION=pgsql" >> .env
+          echo "DB_HOST=google-scraper-db.cappcslmdagl.ap-southeast-1.rds.amazonaws.com" >> .env
+          echo "DB_PORT=5432" >> .env
+          echo "DB_DATABASE=google-scraper-db" >> .env
+          echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+
+      - name: Install Composer Dependencies
+        run: |
+          cd backend
+          composer install --no-dev --optimize-autoloader
+
+      - name: Create deployment package
+        run: |
+          cd backend
+          zip -r ../deploy.zip .
+
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v21
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: ${{ env.EB_APPLICATION }}
+          environment_name: ${{ env.EB_ENVIRONMENT }}
+          region: ${{ env.AWS_REGION }}
+          deployment_package: deploy.zip
+          version_label: ${{ github.sha }}
