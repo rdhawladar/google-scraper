@@ -33,7 +33,7 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      - name: Generate Dockerrun.aws.json and config files
+      - name: Generate deployment package
         env:
           ECR_REGISTRY: 248158220667.dkr.ecr.ap-southeast-1.amazonaws.com
           ECR_REPOSITORY: google-scraper
@@ -57,8 +57,43 @@ jobs:
           # Create .ebextensions directory
           mkdir -p .ebextensions
 
+          # Create ECR config
+          echo 'packages:
+            yum:
+              amazon-ecr-credential-helper: []
+          
+          files:
+            "/root/.docker/config.json":
+              mode: "000644"
+              owner: root
+              group: root
+              content: |
+                {
+                  "credHelpers": {
+                    "248158220667.dkr.ecr.ap-southeast-1.amazonaws.com": "ecr-login"
+                  }
+                }
+          ' > .ebextensions/01-ecr-config.config
 
-          # Create zip file containing both Dockerrun.aws.json and .ebextensions
+          # Create environment config
+          echo 'option_settings:
+            aws:elasticbeanstalk:application:environment:
+              APP_NAME: "GoogleScraper"
+              APP_ENV: "production"
+              APP_DEBUG: "false"
+              DB_CONNECTION: pgsql
+              DB_HOST: ${RDS_HOSTNAME}
+              DB_PORT: ${RDS_PORT}
+              DB_DATABASE: ${RDS_DB_NAME}
+              DB_USERNAME: ${RDS_USERNAME}
+              DB_PASSWORD: ${RDS_PASSWORD}
+            aws:autoscaling:launchconfiguration:
+              IamInstanceProfile: aws-elasticbeanstalk-ec2-role
+            aws:elasticbeanstalk:container:docker:
+              memory: 512
+          ' > .ebextensions/02-env.config
+
+          # Create zip file
           zip -r deploy.zip Dockerrun.aws.json .ebextensions/
 
       - name: Deploy to EB
