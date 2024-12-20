@@ -89,8 +89,18 @@ jobs:
               DB_PASSWORD: ${RDS_PASSWORD}
             aws:autoscaling:launchconfiguration:
               IamInstanceProfile: aws-elasticbeanstalk-ec2-role
-            aws:elasticbeanstalk:container:docker:
-              memory: 512
+              InstanceType: t2.micro
+            aws:elasticbeanstalk:environment:
+              EnvironmentType: SingleInstance
+            aws:elasticbeanstalk:command:
+              BatchSize: "1"
+              BatchSizeType: Fixed
+            aws:elasticbeanstalk:managedactions:
+              ManagedActionsEnabled: true
+              PreferredStartTime: "Tue:09:00"
+            aws:elasticbeanstalk:managedactions:platformupdate:
+              UpdateLevel: minor
+              InstanceRefreshEnabled: true
           ' > .ebextensions/02-env.config
 
           # Create zip file
