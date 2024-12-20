@@ -90,11 +90,19 @@ jobs:
             aws:autoscaling:launchconfiguration:
               IamInstanceProfile: aws-elasticbeanstalk-ec2-role
               InstanceType: t2.micro
+              SecurityGroups: sg-0c0a7a9e24cb57425
+            aws:ec2:vpc:
+              VPCId: vpc-0bc27d3764c263367
+              Subnets: subnet-0e033540039a89026
+              ELBSubnets: subnet-0e033540039a89026
+              AssociatePublicIpAddress: true
             aws:elasticbeanstalk:environment:
               EnvironmentType: SingleInstance
+              ServiceRole: aws-elasticbeanstalk-service-role
             aws:elasticbeanstalk:command:
               BatchSize: "1"
               BatchSizeType: Fixed
+              DeploymentPolicy: AllAtOnce
             aws:elasticbeanstalk:managedactions:
               ManagedActionsEnabled: true
               PreferredStartTime: "Tue:09:00"
