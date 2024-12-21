@@ -2,7 +2,7 @@ name: Deploy Backend to EC2
 
 on:
   push:
-    branches: [main, backend-deploy] # will remove 'backend-deploy' branch
+    branches: [main, backend-deployment] # will remove 'backend-deploy' branch
     paths:
       - "backend/**"
       - ".github/workflows/backend-deploy.yml"
