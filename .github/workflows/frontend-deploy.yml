@@ -3,9 +3,12 @@ name: Deploy Frontend to S3
 on:
   push:
     branches:
-      - frontend-deployment  # or your default branch
+      - frontend-deployment # or your default branch
     paths:
-      - 'frontend/**'
+      - "./**"
+
+env:
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
 jobs:
   deploy:
@@ -20,8 +23,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: "18"
+          cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Dependencies
@@ -40,8 +43,8 @@ jobs:
       - name: Deploy to S3
         run: |
           aws s3 sync dist/ s3://${{ secrets.S3_BUCKET }} --delete
-          
+
       - name: Invalidate CloudFront Distribution (if using CloudFront)
-        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        if: ${{ env.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+          aws cloudfront create-invalidation --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
