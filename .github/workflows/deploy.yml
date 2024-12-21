@@ -67,7 +67,9 @@ jobs:
               group: root
               content: |
                 {
-                  "credsStore": "ecr-login"
+                  "credHelpers": {
+                    "248158220667.dkr.ecr.ap-southeast-1.amazonaws.com": "ecr-login"
+                  }
                 }
 
             "/home/ec2-user/.aws/config":
@@ -97,6 +99,10 @@ jobs:
                 mkdir -p /home/ec2-user/.aws
                 mkdir -p /etc/docker
                 chown -R ec2-user:ec2-user /home/ec2-user/.aws
+            02_install_helper:
+              command: |
+                yum install -y amazon-ecr-credential-helper
+                systemctl restart docker
           ' > .ebextensions/01-ecr-config.config
 
           # Create environment config
