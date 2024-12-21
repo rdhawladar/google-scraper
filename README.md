@@ -99,6 +99,30 @@ docker-compose up -d
 docker-compose exec backend php artisan migrate
 ```
 
+## Deployment
+
+### Release Tags
+The project uses separate tagging conventions for frontend and backend deployments:
+
+- Frontend releases: Use `F-v*` tags (e.g., `F-v1.0.0`)
+  - Requires passing test suite
+  - Must pass ESLint code quality checks
+- Backend releases: Use `B-v*` tags (e.g., `B-v1.0.0`)
+
+To deploy a new version:
+
+```bash
+# For frontend deployment
+git tag F-v1.0.0
+git push origin F-v1.0.0  # This will trigger tests and linting before deployment
+
+# For backend deployment
+git tag B-v1.0.0
+git push origin B-v1.0.0
+```
+
+This separation allows for independent versioning and deployment of frontend and backend components. Frontend deployments include automated quality checks to ensure code reliability and consistency.
+
 ## Running Tests
 
 ### Backend Tests
@@ -147,7 +171,7 @@ Detailed API documentation is available at:
 
 ### Improvement plans
 
-- Optimized search and pagination support from backednd
+- Optimized search and pagination support from backend
 - Rate limiting optimization
 - Batch processing improvements
 - Image search results extraction
