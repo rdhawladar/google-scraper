@@ -1,0 +1,78 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-deploy.yml"
+    tags:
+      - "B-v*" # For releases
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          
+      - name: Copy files to EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+        run: |
+          # Write the SSH key to a file
+          echo "$EC2_SSH_KEY" > ssh_key.pem
+          chmod 600 ssh_key.pem
+          
+          # Create the deployment script
+          cat > deploy.sh << 'EOL'
+          #!/bin/bash
+          set -e
+          
+          # Pull the latest code
+          cd /var/www/google-scraper
+          git pull origin main
+          
+          # Install/update dependencies
+          cd backend
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          
+          # Set up environment file if not exists
+          if [ ! -f .env ]; then
+            cp .env.example .env
+            php artisan key:generate
+          fi
+          
+          # Run migrations
+          php artisan migrate --force
+          
+          # Clear caches
+          php artisan config:clear
+          php artisan cache:clear
+          php artisan route:clear
+          php artisan view:clear
+          
+          # Update permissions
+          sudo chown -R www-data:www-data storage bootstrap/cache
+          sudo chmod -R 775 storage bootstrap/cache
+          
+          # Restart services
+          sudo systemctl restart php8.1-fpm
+          sudo systemctl restart nginx
+          EOL
+          
+          # Copy deployment script to EC2
+          chmod +x deploy.sh
+          scp -i ssh_key.pem -o StrictHostKeyChecking=no deploy.sh ${EC2_USERNAME}@${EC2_HOST}:/tmp/deploy.sh
+          
+          # Execute deployment script
+          ssh -i ssh_key.pem -o StrictHostKeyChecking=no ${EC2_USERNAME}@${EC2_HOST} "sudo bash /tmp/deploy.sh"
