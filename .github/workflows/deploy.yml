@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - deployment
 
 jobs:
   deploy:
@@ -118,7 +120,7 @@ jobs:
           ' > .ebextensions/02-env.config
 
           # Create zip file
-          zip -r deploy.zip Dockerrun.aws.json .ebextensions/
+          zip -r deploy-${{ github.sha }}.zip Dockerrun.aws.json .ebextensions/
 
       - name: Deploy to EB
         uses: einaregilsson/beanstalk-deploy@v21
@@ -129,5 +131,7 @@ jobs:
           environment_name: Nimble1-env
           region: ap-southeast-1
           version_label: ${{ github.ref_name }}
-          deployment_package: deploy.zip
-          wait_for_environment_recovery: 300
+          deployment_package: deploy-${{ github.sha }}.zip
+          # wait_for_environment_recovery: 300
+          wait_for_deployment: true
+          # deployment_description: "Deploy from GitHub Actions"
