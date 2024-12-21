@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import  { useEffect, useState } from "react";
 import {
   Table,
   Badge,
@@ -205,7 +205,7 @@ export default function KeywordList() {
     const items = [];
     const maxVisiblePages = 5;
     let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
 
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
@@ -257,7 +257,7 @@ export default function KeywordList() {
     const searchResults = doc.querySelectorAll(".g, .MjjYud, .Gx5Zad");
     console.log("Found search results:", searchResults.length); // Debug log
 
-    searchResults.forEach((result, index) => {
+    searchResults.forEach((result) => {
       // Try multiple possible selectors for each element
       const titleElement = result.querySelector("h3, .DKV0Md");
       const linkElement = result.querySelector("a[href], .yuRUbf a");

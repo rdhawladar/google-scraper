@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -10,7 +10,6 @@ import NotFound from './components/NotFound';
 // Redirect authenticated users away from auth pages
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
-  const navigate = useNavigate();
 
   if (token) {
     return <Navigate to="/dashboard" replace />;
