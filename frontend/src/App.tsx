@@ -5,6 +5,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './components/Dashboard';
+import NotFound from './components/NotFound';
 
 // Redirect authenticated users away from auth pages
 function PublicRoute({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ function App() {
             }
           />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>
     </AuthProvider>
