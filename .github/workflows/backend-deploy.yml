@@ -28,6 +28,7 @@ jobs:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # Write the SSH key to a file
           echo "$EC2_SSH_KEY" > ssh_key.pem
@@ -38,9 +39,20 @@ jobs:
           #!/bin/bash
           set -e
           
+          # Create directory if it doesn't exist
+          sudo mkdir -p /var/www/google-scraper
+          sudo chown -R ${EC2_USERNAME}:${EC2_USERNAME} /var/www/google-scraper
+          
+          # Check if repository exists
+          if [ ! -d "/var/www/google-scraper/.git" ]; then
+            # Clone repository for first time
+            git clone https://github.com/${GITHUB_REPOSITORY}.git /var/www/google-scraper
+          fi
+          
           # Pull the latest code
           cd /var/www/google-scraper
-          git pull origin main
+          git fetch origin
+          git reset --hard origin/main
           
           # Install/update dependencies
           cd backend
