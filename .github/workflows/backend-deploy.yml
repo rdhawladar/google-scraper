@@ -39,6 +39,20 @@ jobs:
           #!/bin/bash
           set -e
           
+          # Install required packages if not present
+          if ! command -v git &> /dev/null; then
+            echo "Installing git..."
+            sudo apt-get update
+            sudo apt-get install -y git
+          fi
+
+          if ! command -v composer &> /dev/null; then
+            echo "Installing composer..."
+            sudo apt-get install -y php-cli unzip
+            curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php
+            sudo php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+          fi
+          
           # Create directory if it doesn't exist
           sudo mkdir -p /var/www/google-scraper
           sudo chown -R ${EC2_USERNAME}:${EC2_USERNAME} /var/www/google-scraper
