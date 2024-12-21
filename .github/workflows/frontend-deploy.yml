@@ -6,9 +6,9 @@ on:
       - frontend-deployment # or your default branch
       
 env:
-  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
-  VITE_API_URL: ${{ secrets.VITE_API_URL }}
-  VITE_APP_NAME: ${{ secrets.VITE_APP_NAME }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+  VITE_API_URL: ${{ vars.VITE_API_URL }}
+  VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
 
 jobs:
   deploy:
