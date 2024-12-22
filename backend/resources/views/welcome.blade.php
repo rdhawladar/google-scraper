@@ -30,6 +30,7 @@
                         </div>
                         <div class="flex items-center space-x-4">
                             <a href="{{ env('FRONTEND_URL') }}" class="text-gray-600 hover:text-gray-900">Frontend</a>
+                            <a href="/api/documentation" class="text-gray-600 hover:text-gray-900">API Docs</a>
                             <a href="http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Try Demo</a>
                         </div>
                     </div>
