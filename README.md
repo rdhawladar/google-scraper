@@ -4,8 +4,9 @@ A powerful web application for scraping and analyzing Google search results with
 
 ## Demo Links
 
-- Frontend Demo: [http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/](http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/)
-- Backend API: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/)
+- Frontend Demo: [http://googlescraper.s3-website-ap-southeast-1.amazonaws.com](http://googlescraper.s3-website-ap-southeast-1.amazonaws.com)
+- Backend API: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com)
+- API Documentation: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/api/documentation](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/api/documentation)
 
 ### Test Account
 ```
