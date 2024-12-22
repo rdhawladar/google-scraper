@@ -200,6 +200,7 @@ class ScrapeGoogleResults implements ShouldQueue
                 $backoffTime = $this->backoff[$this->attempts() - 1] ?? end($this->backoff);
                 Log::info('Releasing job back to queue for retry', [
                     'keyword_id' => $this->keyword->id,
+                    'title' => $this->keyword->keyword,
                     'attempt' => $this->attempts(),
                     'backoff_time' => $backoffTime
                 ]);
@@ -222,6 +223,7 @@ class ScrapeGoogleResults implements ShouldQueue
 
                 Log::error('All retry attempts exhausted, marking keyword as failed', [
                     'keyword_id' => $this->keyword->id,
+                    'title' => $this->keyword->keyword,
                     'status_updated' => $updated,
                     'final_status' => 'failed',
                     'search_result_id' => $searchResult->id ?? null

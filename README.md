@@ -2,6 +2,11 @@
 
 A powerful web application for scraping and analyzing Google search results with automated data collection capabilities.
 
+## Demo Links
+
+- Frontend Demo: [http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/](http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/)
+- Backend API: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/)
+
 ## Features
 
 - Automated Google search results scraping
@@ -14,6 +19,11 @@ A powerful web application for scraping and analyzing Google search results with
 - Data persistence and history tracking
 
 ## Tech Stack
+
+### System Requirements
+- PHP >= 8.2
+- Docker (Latest version with Docker Compose V2 support)
+- Node.js >= 16
 
 ### Backend
 - PHP with Laravel Framework
@@ -31,6 +41,8 @@ A powerful web application for scraping and analyzing Google search results with
 - Docker & Docker Compose
 - AWS deployment ready
 - GitHub Actions for CI/CD
+  - Automated frontend deployment with version tags (F-v*)
+  - Continuous deployment to S3 bucket
 - Nginx web server
 
 ## Project Structure
@@ -94,9 +106,10 @@ npm install
 docker-compose up -d
 ```
 
-5. Run migrations:
+5. Run migrations and seed the database:
 ```bash
 docker-compose exec backend php artisan migrate
+docker-compose exec backend php artisan db:seed  # This will populate the database with sample keywords
 ```
 
 ## Deployment
