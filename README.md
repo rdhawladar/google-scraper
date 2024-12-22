@@ -7,6 +7,12 @@ A powerful web application for scraping and analyzing Google search results with
 - Frontend Demo: [http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/](http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/)
 - Backend API: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/)
 
+### Test Account
+```
+Email: test@example.com
+Password: 1234
+```
+
 ## Features
 
 - Automated Google search results scraping

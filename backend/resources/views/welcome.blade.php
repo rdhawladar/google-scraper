@@ -47,46 +47,21 @@
                         <p class="mt-3 max-w-md mx-auto text-base text-gray-500 sm:text-lg md:mt-5 md:text-xl md:max-w-3xl">
                             Extract search results efficiently with our advanced Google scraping solution. Built with modern technology stack for reliability and speed.
                         </p>
-                    </div>
-
-                    <!-- Features Section -->
-                    <div class="mt-16">
-                        <div class="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
-                            <!-- Feature 1 -->
-                            <div class="bg-white rounded-lg shadow p-6">
-                                <div class="text-blue-600 text-2xl mb-4">🚀</div>
-                                <h3 class="text-lg font-medium text-gray-900">High Performance</h3>
-                                <p class="mt-2 text-gray-500">
-                                    Fast and efficient data extraction with optimized algorithms
-                                </p>
-                            </div>
-
-                            <!-- Feature 2 -->
-                            <div class="bg-white rounded-lg shadow p-6">
-                                <div class="text-blue-600 text-2xl mb-4">🛡️</div>
-                                <h3 class="text-lg font-medium text-gray-900">Reliable & Secure</h3>
-                                <p class="mt-2 text-gray-500">
-                                    Built-in proxy support and rate limiting for stable operation
-                                </p>
-                            </div>
-
-                            <!-- Feature 3 -->
-                            <div class="bg-white rounded-lg shadow p-6">
-                                <div class="text-blue-600 text-2xl mb-4">🔌</div>
-                                <h3 class="text-lg font-medium text-gray-900">Easy Integration</h3>
-                                <p class="mt-2 text-gray-500">
-                                    Simple API endpoints for seamless integration with your projects
-                                </p>
+                        <div class="mt-8 flex justify-center">
+                            <a href="{{ env('FRONTEND_URL') }}" class="bg-blue-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors">
+                                Get Started
+                            </a>
+                        </div>
+                        <!-- Test Credentials -->
+                        <div class="mt-6">
+                            <p class="text-sm text-gray-600">Test Account:</p>
+                            <div class="mt-2 inline-block bg-gray-50 rounded-lg px-4 py-2">
+                                <p class="text-sm font-mono">Email: test@example.com</p>
+                                <p class="text-sm font-mono">Password: 1234</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- CTA Section -->
-                    <div class="mt-16 text-center">
-                        <a href="{{ env('FRONTEND_URL') }}" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-                            Get Started
-                        </a>
-                    </div>
                 </div>
             </main>
 
