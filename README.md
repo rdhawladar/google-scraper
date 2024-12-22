@@ -2,6 +2,11 @@
 
 A powerful web application for scraping and analyzing Google search results with automated data collection capabilities.
 
+## Demo Links
+
+- Frontend Demo: [http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/](http://googlescraper.s3-website-ap-southeast-1.amazonaws.com/)
+- Backend API: [http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/](http://ec2-18-138-248-220.ap-southeast-1.compute.amazonaws.com/)
+
 ## Features
 
 - Automated Google search results scraping
@@ -14,6 +19,11 @@ A powerful web application for scraping and analyzing Google search results with
 - Data persistence and history tracking
 
 ## Tech Stack
+
+### System Requirements
+- PHP >= 8.2
+- Docker (Latest version with Docker Compose V2 support)
+- Node.js >= 16
 
 ### Backend
 - PHP with Laravel Framework
@@ -31,6 +41,8 @@ A powerful web application for scraping and analyzing Google search results with
 - Docker & Docker Compose
 - AWS deployment ready
 - GitHub Actions for CI/CD
+  - Automated frontend deployment with version tags (F-v*)
+  - Continuous deployment to S3 bucket
 - Nginx web server
 
 ## Project Structure
@@ -94,10 +106,35 @@ npm install
 docker-compose up -d
 ```
 
-5. Run migrations:
+5. Run migrations and seed the database:
 ```bash
 docker-compose exec backend php artisan migrate
+docker-compose exec backend php artisan db:seed  # This will populate the database with sample keywords
 ```
+
+## Deployment
+
+### Release Tags
+The project uses separate tagging conventions for frontend and backend deployments:
+
+- Frontend releases: Use `F-v*` tags (e.g., `F-v1.0.0`)
+  - Requires passing test suite
+  - Must pass ESLint code quality checks
+- Backend releases: Use `B-v*` tags (e.g., `B-v1.0.0`)
+
+To deploy a new version:
+
+```bash
+# For frontend deployment
+git tag F-v1.0.0
+git push origin F-v1.0.0  # This will trigger tests and linting before deployment
+
+# For backend deployment
+git tag B-v1.0.0
+git push origin B-v1.0.0
+```
+
+This separation allows for independent versioning and deployment of frontend and backend components. Frontend deployments include automated quality checks to ensure code reliability and consistency.
 
 ## Running Tests
 
@@ -147,7 +184,7 @@ Detailed API documentation is available at:
 
 ### Improvement plans
 
-- Optimized search and pagination support from backednd
+- Optimized search and pagination support from backend
 - Rate limiting optimization
 - Batch processing improvements
 - Image search results extraction
