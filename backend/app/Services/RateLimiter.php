@@ -22,7 +22,7 @@ class RateLimiter
         }
 
         Cache::increment($key);
-        Cache::put($key, $requests + 1, now()->addSeconds(self::TIME_WINDOW));
+        Cache::put($key, $requests + 1, self::TIME_WINDOW);
     }
 
     public function canProceed(): bool
