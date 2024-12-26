@@ -125,6 +125,28 @@ describe('KeywordUpload Component', () => {
     expect(screen.getByText(/Maximum 100 keywords allowed/)).toBeInTheDocument();
   });
 
+  it('validates empty file', async () => {
+    render(
+      <AuthContext.Provider value={mockAuthContext}>
+        <KeywordUpload />
+      </AuthContext.Provider>
+    );
+
+    const fileInput = screen.getByLabelText(/Choose a CSV file containing keywords/i);
+    const file = new File([''], 'keywords.csv', { type: 'text/csv' });
+    
+    await act(async () => {
+      Object.defineProperty(fileInput, 'files', {
+        value: [file]
+      });
+      fireEvent.change(fileInput);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/The CSV file is empty. Please upload a file containing keywords./i)).toBeInTheDocument();
+    });
+  });
+
   it('shows error message on upload failure', async () => {
     mockedAxios.post.mockRejectedValueOnce({
       response: {
