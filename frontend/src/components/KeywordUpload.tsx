@@ -28,6 +28,8 @@ export default function KeywordUpload() {
         
         if (count > MAX_KEYWORDS_PER_UPLOAD) {
           reject(new Error(`Maximum ${MAX_KEYWORDS_PER_UPLOAD} keywords allowed per upload. Found: ${count} keywords.`));
+        } else if (count === 0) {
+          reject(new Error('The CSV file is empty. Please upload a file containing keywords.'));
         } else {
           resolve(count);
         }
