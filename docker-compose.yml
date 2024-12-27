@@ -11,12 +11,12 @@ services:
       - db
       - redis
     environment:
-      - DB_HOST=db
+      - DB_HOST=google-scraper-db.cappcslmdagl.ap-southeast-1.rds.amazonaws.com
       - DB_PORT=5432
       - DB_DATABASE=google_scraper
       - DB_USERNAME=postgres
       - DB_PASSWORD=password
-      - REDIS_HOST=redis
+      - REDIS_HOST=google-scraper-redis.cappcslmdagl.ap-southeast-1.elasticache.amazonaws.com
       - REDIS_PORT=6379
 
   frontend:

@@ -1,0 +1,144 @@
+name: Deploy to AWS Elastic Beanstalk
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - deployment
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+          mask-aws-account-id: true
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: 248158220667.dkr.ecr.ap-southeast-1.amazonaws.com
+          ECR_REPOSITORY: google-scraper
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Generate deployment package
+        env:
+          ECR_REGISTRY: 248158220667.dkr.ecr.ap-southeast-1.amazonaws.com
+          ECR_REPOSITORY: google-scraper
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          # Create Dockerrun.aws.json
+          echo '{
+            "AWSEBDockerrunVersion": "1",
+            "Image": {
+              "Name": "'$ECR_REGISTRY'/'$ECR_REPOSITORY':'$IMAGE_TAG'",
+              "Update": "true"
+            },
+            "Ports": [
+              {
+                "ContainerPort": "80",
+                "HostPort": "80"
+              }
+            ]
+          }' > Dockerrun.aws.json
+
+          # Create .ebextensions directory
+          mkdir -p .ebextensions
+
+          # Create ECR config
+          echo 'files:
+            "/etc/docker/config.json":
+              mode: "000644"
+              owner: root
+              group: root
+              content: |
+                {
+                  "credHelpers": {
+                    "248158220667.dkr.ecr.ap-southeast-1.amazonaws.com": "ecr-login"
+                  }
+                }
+
+            "/home/ec2-user/.aws/config":
+              mode: "000600"
+              owner: ec2-user
+              group: ec2-user
+              content: |
+                [default]
+                region = ap-southeast-1
+
+            "/home/ec2-user/.aws/credentials":
+              mode: "000600"
+              owner: ec2-user
+              group: ec2-user
+              content: |
+                [default]
+                region = ap-southeast-1
+
+          packages:
+            yum:
+              amazon-ecr-credential-helper: []
+              docker: []
+
+          commands:
+            01_create_dirs:
+              command: |
+                mkdir -p /home/ec2-user/.aws
+                mkdir -p /etc/docker
+                chown -R ec2-user:ec2-user /home/ec2-user/.aws
+            02_install_helper:
+              command: |
+                yum install -y amazon-ecr-credential-helper
+                systemctl restart docker
+          ' > .ebextensions/01-ecr-config.config
+
+          # Create environment config
+          echo 'option_settings:
+            aws:elasticbeanstalk:application:environment:
+              APP_NAME: "GoogleScraper"
+              APP_ENV: "production"
+              APP_DEBUG: "false"
+              DB_CONNECTION: pgsql
+              DB_HOST: ${RDS_HOSTNAME}
+              DB_PORT: ${RDS_PORT}
+              DB_DATABASE: ${RDS_DB_NAME}
+              DB_USERNAME: ${RDS_USERNAME}
+              DB_PASSWORD: ${RDS_PASSWORD}
+            aws:autoscaling:launchconfiguration:
+              IamInstanceProfile: aws-elasticbeanstalk-ec2-role
+              InstanceType: t2.micro
+            aws:elasticbeanstalk:environment:
+              EnvironmentType: SingleInstance
+              ServiceRole: aws-elasticbeanstalk-service-role
+          ' > .ebextensions/02-env.config
+
+          # Create zip file
+          zip -r deploy-${{ github.sha }}.zip Dockerrun.aws.json .ebextensions/
+
+      - name: Deploy to EB
+        uses: einaregilsson/beanstalk-deploy@v21
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: nimble1
+          environment_name: Nimble1-env
+          region: ap-southeast-1
+          version_label: ${{ github.ref_name }}
+          deployment_package: deploy-${{ github.sha }}.zip
+          wait_for_deployment: true
+          use_existing_version_if_available: true
+          # wait_for_environment_recovery: 300
+          # deployment_description: "Deploy from GitHub Actions"
