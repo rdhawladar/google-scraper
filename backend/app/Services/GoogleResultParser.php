@@ -28,6 +28,17 @@ class GoogleResultParser
 
     public function parse(string $html): array
     {
+        if (empty($html)) {
+            return [
+                'total_ads' => 0,
+                'total_links' => 0,
+                'html_cache' => '',
+                'organic_results' => [],
+                'scraped_at' => now(),
+                'results' => [],
+            ];
+        }
+
         libxml_use_internal_errors(true);
         $this->dom = new DOMDocument();
         @$this->dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
@@ -128,7 +139,7 @@ class GoogleResultParser
             }
         }
 
-        // Extract additional metadata if available
+        // Extract metadata using the correct context (container)
         $result['metadata'] = $this->extractMetadata($container);
 
         return $result;
@@ -172,13 +183,13 @@ class GoogleResultParser
     {
         $metadata = [];
 
-        // Look for date
+        // Look for date with the correct class names
         $dateNode = $this->querySelector($container, 'span.MUxGbd.wuQ4Ob.WZ8Tjf');
         if ($dateNode) {
             $metadata['date'] = trim($dateNode->textContent);
         }
 
-        // Look for rating
+        // Look for rating with the correct class names
         $ratingNode = $this->querySelector($container, 'span.Fam1ne.EBe2gf');
         if ($ratingNode) {
             $metadata['rating'] = trim($ratingNode->textContent);
@@ -212,23 +223,23 @@ class GoogleResultParser
 
     private function convertCssToXPath(string $selector): string
     {
-        // Simple CSS to XPath conversion for common selectors
-        $xpath = '';
-        
-        // Handle element with class
-        if (preg_match('/^([a-z0-9]+)\.([a-zA-Z0-9_-]+)$/', $selector, $matches)) {
-            $xpath = ".//{$matches[1]}[contains(@class, '{$matches[2]}')]";
+        // Handle element with multiple classes (e.g., span.MUxGbd.wuQ4Ob.WZ8Tjf)
+        if (preg_match('/^([a-z0-9]+)(\.[a-zA-Z0-9_-]+)+$/', $selector, $matches)) {
+            $element = $matches[1];
+            $classes = explode('.', substr($selector, strlen($element) + 1));
+            $classConditions = array_map(function($class) {
+                return "contains(@class, '$class')";
+            }, $classes);
+            return ".//{$element}[" . implode(' and ', $classConditions) . "]";
         }
         // Handle element with attribute
         elseif (preg_match('/^([a-z0-9]+)\[([^\]]+)\]$/', $selector, $matches)) {
-            $xpath = ".//{$matches[1]}[@{$matches[2]}]";
+            return ".//{$matches[1]}[@{$matches[2]}]";
         }
         // Handle simple element
         else {
-            $xpath = ".//{$selector}";
+            return ".//{$selector}";
         }
-
-        return $xpath;
     }
 
     private function countAds(): int

@@ -154,6 +154,11 @@ This separation allows for independent versioning and deployment of frontend and
   ```bash
   docker-compose exec backend ./vendor/bin/phpunit
   ```
+- **Run Test Coverage**:
+  ```bash
+  docker-compose exec backend ./vendor/bin/phpunit --coverage-html coverage
+  ```
+  This will generate a coverage report in the `coverage` directory.   
 
 ### Frontend Tests
 - **Framework**: Jest with ts-jest preset
